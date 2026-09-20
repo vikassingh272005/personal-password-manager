@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Postgres runs as a service container (host port 5432 inside the job).
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/secure_vault
+
+jobs:
+  rust:
+    name: Rust — fmt, clippy, test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: secure_vault
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            secure-vault/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('secure-vault/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Format check
+        working-directory: secure-vault
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        working-directory: secure-vault
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests (unit + API integration against Postgres)
+        working-directory: secure-vault
+        env:
+          PORT: "3001"
+        run: cargo test --workspace
+
+  web:
+    name: Web — lint, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: secure-vault/apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: secure-vault/apps/web
+        run: npm ci
+
+      - name: Lint
+        working-directory: secure-vault/apps/web
+        run: npm run lint
+
+      - name: Build
+        working-directory: secure-vault/apps/web
+        run: npm run build

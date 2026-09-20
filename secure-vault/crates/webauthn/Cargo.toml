@@ -1,0 +1,18 @@
+[package]
+name = "secure-vault-webauthn"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+secure-vault-config = { workspace = true }
+secure-vault-models = { workspace = true }
+secure-vault-database = { workspace = true }
+secure-vault-crypto = { workspace = true }

@@ -1,0 +1,12 @@
+# Agent workspace / session artifacts — not part of the project
+.freebuff/
+.freebuff-preview.log*
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+
+# OS junk
+.DS_Store
+Thumbs.db

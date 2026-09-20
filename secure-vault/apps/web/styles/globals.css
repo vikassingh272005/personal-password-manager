@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: 220 4% 7%;
+    --foreground: 0 0% 96%;
+    --card: 220 4% 11%;
+    --card-foreground: 0 0% 96%;
+    --primary: 0 0% 93%;
+    --primary-foreground: 220 6% 8%;
+    --secondary: 220 4% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 220 4% 13%;
+    --muted-foreground: 220 4% 62%;
+    --accent: 220 4% 17%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 4% 20%;
+    --input: 220 4% 22%;
+    --ring: 0 0% 85%;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    background-image:
+      radial-gradient(1px 1px at 12% 22%, rgba(255, 255, 255, 0.07) 50%, transparent 51%),
+      radial-gradient(1px 1px at 68% 8%, rgba(255, 255, 255, 0.05) 50%, transparent 51%),
+      radial-gradient(1px 1px at 84% 64%, rgba(255, 255, 255, 0.06) 50%, transparent 51%),
+      radial-gradient(1px 1px at 32% 78%, rgba(255, 255, 255, 0.05) 50%, transparent 51%),
+      radial-gradient(60% 45% at 15% -10%, rgba(255, 255, 255, 0.06), transparent 70%),
+      radial-gradient(45% 35% at 95% 110%, rgba(255, 255, 255, 0.04), transparent 70%);
+  }
+
+  ::selection {
+    background: rgba(255, 255, 255, 0.25);
+    color: #0c0c0d;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ---- SecureX glass ---- */
+  .glass {
+    @apply rounded-[22px] border border-white/10 bg-gradient-to-b from-white/[0.09] to-white/[0.03] shadow-glass backdrop-blur-xl;
+  }
+
+  .glass-row {
+    @apply flex items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] px-4 py-3.5 shadow-card backdrop-blur-xl transition-colors hover:border-white/20;
+  }
+
+  .glass-pill {
+    @apply rounded-full border border-white/15 bg-white/[0.07] backdrop-blur-xl;
+  }
+
+  .card {
+    @apply glass;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-white/10 bg-white/[0.05] px-3.5 py-2.5 text-sm text-foreground backdrop-blur-xl transition-colors placeholder:text-muted-foreground/60 focus:border-white/25 focus:bg-white/[0.08] focus:outline-none focus:ring-2 focus:ring-white/20;
+  }
+
+  .search-pill {
+    @apply glass-pill flex items-center gap-2.5 px-4 py-3 text-sm;
+  }
+  .search-pill input {
+    @apply w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-muted-foreground;
+  }
+
+  /* White pill CTA like the "Get Started" button */
+  .btn-primary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-silver px-6 py-3 text-sm font-semibold text-ink shadow-pill transition-all hover:bg-white active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-5 py-3 text-sm font-medium text-foreground/90 backdrop-blur-xl transition-all hover:bg-white/10 hover:text-foreground active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-destructive/25 px-4 py-2.5 text-sm font-medium text-red-400 transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .tab-pill {
+    @apply cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-xs font-medium text-muted-foreground transition-all hover:text-foreground;
+  }
+  .tab-pill-active {
+    @apply bg-silver text-ink shadow-pill hover:text-ink;
+  }
+
+  .icon-disc {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-gradient-to-b from-white/20 to-white/5 shadow-card backdrop-blur-xl;
+  }
+
+  .strength-ring {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold;
+  }
+
+  .alert-error {
+    @apply rounded-2xl border border-red-500/20 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-400;
+  }
+
+  .alert-success {
+    @apply rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-400;
+  }
+
+  /* Giant watermark headline behind onboarding, like the mockups */
+  .watermark {
+    @apply pointer-events-none select-none text-center font-bold uppercase leading-none tracking-tight text-white/[0.05];
+    font-size: clamp(3rem, 10vw, 7rem);
+  }
+
+  input[type='range'] {
+    @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10;
+  }
+  input[type='range']::-webkit-slider-thumb {
+    @apply h-4 w-4 cursor-pointer appearance-none rounded-full border-2 border-white bg-silver-dim shadow-md;
+  }
+  input[type='range']::-moz-range-thumb {
+    @apply h-4 w-4 cursor-pointer appearance-none rounded-full border-2 border-white bg-silver-dim shadow-md;
+  }
+}

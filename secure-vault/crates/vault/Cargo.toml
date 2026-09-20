@@ -1,0 +1,21 @@
+[package]
+name = "secure-vault-vault"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+aes-gcm = { workspace = true }
+zeroize = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+secure-vault-crypto = { workspace = true }
+secure-vault-models = { workspace = true }
+secure-vault-database = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
