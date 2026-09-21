@@ -7,8 +7,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Postgres runs as a service container (host port 5432 inside the job).
-  DATABASE_URL: postgres://postgres:postgres@localhost:5432/secure_vault
 
 jobs:
   rust:
@@ -59,7 +57,9 @@ jobs:
       - name: Run tests (unit + API integration against Postgres)
         working-directory: secure-vault
         env:
-          PORT: "3001"
+          # The integration suite truncates whatever it connects to — point it
+          # at the disposable service database, never a real one.
+          SECURE_VAULT_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/secure_vault
         run: cargo test --workspace
 
   web:
