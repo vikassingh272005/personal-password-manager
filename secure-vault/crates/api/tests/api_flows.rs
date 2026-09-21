@@ -20,15 +20,15 @@ fn test_db_url() -> String {
     // Deliberately NOT the development database (which holds real local
     // data): the suite truncates everything it connects to. CI overrides
     // this via env with its own disposable Postgres.
-    std::env::var("SECURE_VAULT_TEST_DATABASE_URL").unwrap_or_else(|_| {
-        "postgres://postgres:postgres@localhost:5433/secure_vault_test".into()
-    })
+    std::env::var("SECURE_VAULT_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5433/secure_vault_test".into())
 }
 
-async fn setup_test() -> (
-    axum::Router,
-    tokio::sync::MutexGuard<'static, ()>,
-) {
+async fn setup_test() -> (axum::Router, tokio::sync::MutexGuard<'static, ()>) {
+    // Serialize BEFORE touching the database: each test truncates the shared
+    // database, so concurrent setups would wipe each other's fixtures.
+    let guard = DB_LOCK.lock().await;
+
     let url = test_db_url();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -36,17 +36,19 @@ async fn setup_test() -> (
         .await
         .expect("connect to test Postgres (is it running? see docker-compose.yml)");
 
-    // Fresh, empty database for every run: tests create accounts with fixed
+    // Migrate before truncating — on a pristine database the tables don't
+    // exist yet. Migrations are tracked, so this is a no-op on later runs.
+    sqlx::migrate!("../../migrations")
+        .run(&pool)
+        .await
+        .expect("run migrations");
+
+    // Fresh, empty tables for every run: tests create accounts with fixed
     // emails, so leftovers from previous runs would collide.
     sqlx::query("TRUNCATE audit_events, sessions, vault_snapshots, vaults, devices, users CASCADE")
         .execute(&pool)
         .await
         .expect("truncate test database");
-
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .expect("run migrations");
 
     let config = secure_vault_config::AppConfig {
         port: 0, // unused in tests — the router is called directly
@@ -56,9 +58,9 @@ async fn setup_test() -> (
     };
     let router = build_router(AppState::new(pool, config));
 
-    // The truncation above must stay exclusive until the test finishes, so
-    // the guard is returned alongside the router and held for the whole test.
-    (router, DB_LOCK.lock().await)
+    // The guard is returned and held for the whole test: the database must
+    // stay untouched by other tests until this one finishes.
+    (router, guard)
 }
 
 /// Serializes tests: each truncates the shared database at startup.
@@ -86,28 +88,23 @@ async fn post_json(
     }
     let response = app
         .clone()
-        .oneshot(
-            builder
-                .body(Body::from(payload.to_string()))
-                .unwrap(),
-        )
+        .oneshot(builder.body(Body::from(payload.to_string())).unwrap())
         .await
         .unwrap();
 
     let status = response.status();
     let cookie_out = response.headers().get("set-cookie").and_then(|v| {
         let s = v.to_str().ok()?;
-        s.split(';').next().and_then(|kv| kv.strip_prefix("session_token=")).map(String::from)
+        s.split(';')
+            .next()
+            .and_then(|kv| kv.strip_prefix("session_token="))
+            .map(String::from)
     });
     let body = body_json(response).await;
     (status, body, cookie_out)
 }
 
-async fn get_json(
-    app: &axum::Router,
-    uri: &str,
-    cookie: &str,
-) -> (StatusCode, Value) {
+async fn get_json(app: &axum::Router, uri: &str, cookie: &str) -> (StatusCode, Value) {
     let response = app
         .clone()
         .oneshot(
@@ -150,8 +147,8 @@ async fn put_json(
 /// 48 bytes of base64 (32-byte key + 16-byte GCM tag) and a 12-byte nonce.
 fn fake_wrap() -> Value {
     json!({
-        "ciphertext": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISEiIyQlJic=",
-        "nonce": "AAAAAAAAAAAAAAAAAAAAAA=="
+        "ciphertext": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4v",
+        "nonce": "AAAAAAAAAAAAAAAA"
     })
 }
 
@@ -203,7 +200,7 @@ async fn register_login_vault_flow() {
     let snapshot1 = json!({
         "version": 1,
         "ciphertext": "YWJjZGVmZ2hpamtsbW5vcA==",
-        "nonce": "AAAAAAAAAAAAAAAAAAAAAQ==",
+        "nonce": "AAAAAAAAAAAAAAAA",
         "kek_wrap": fake_wrap(),
         "recovery_wrap": Value::Null,
     });
@@ -215,7 +212,7 @@ async fn register_login_vault_flow() {
     let stale = json!({
         "version": 1,
         "ciphertext": "YWJjZGVmZ2hpamtsbW5vcA==",
-        "nonce": "AAAAAAAAAAAAAAAAAAAAAQ==",
+        "nonce": "AAAAAAAAAAAAAAAA",
     });
     let (status, body) = put_json(&app, "/api/v1/vault", stale, &alice_cookie).await;
     assert_eq!(status, StatusCode::CONFLICT, "body: {body}");
@@ -226,7 +223,7 @@ async fn register_login_vault_flow() {
         json!({
             "version": 2,
             "ciphertext": "ZGVmZ2hpamtsbW5vcHFyc3Q=",
-            "nonce": "AAAAAAAAAAAAAAAAAAAAAg==",
+            "nonce": "AAAAAAAAAAAAAAAC",
         }),
         &alice_cookie,
     )
@@ -256,7 +253,7 @@ async fn register_login_vault_flow() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     let bob_cookie = cookie.unwrap();
-    let (status, me) = get_json(&app, "/api/v1/auth/me", &bob_cookie).await;
+    let (_status, me) = get_json(&app, "/api/v1/auth/me", &bob_cookie).await;
     assert_eq!(me["role"], "user");
 
     let (status, _) = get_json(&app, "/api/v1/admin/users", &bob_cookie).await;
@@ -300,7 +297,8 @@ async fn two_factor_enroll_and_challenge_login() {
     let cookie = cookie.unwrap();
 
     // ---- enroll -------------------------------------------------------------
-    let (status, setup, _) = post_json(&app, "/api/v1/auth/2fa/setup", json!({}), Some(&cookie)).await;
+    let (status, setup, _) =
+        post_json(&app, "/api/v1/auth/2fa/setup", json!({}), Some(&cookie)).await;
     assert_eq!(status, StatusCode::OK, "body: {setup}");
     let secret = setup["secret"].as_str().unwrap().to_string();
     assert!(setup["otpauth_uri"]
@@ -322,7 +320,7 @@ async fn two_factor_enroll_and_challenge_login() {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as u64;
+        .as_secs();
     let decoded = secure_vault_crypto::totp::base32_decode(&secret).unwrap();
     let code = format!(
         "{:06}",
@@ -390,7 +388,7 @@ async fn two_factor_enroll_and_challenge_login() {
     let now2 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as u64;
+        .as_secs();
     let code2 = format!(
         "{:06}",
         secure_vault_crypto::totp::hotp_sha1(&decoded, now2 / 30, 6)

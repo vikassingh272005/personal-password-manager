@@ -48,8 +48,9 @@ pub async fn list_devices(
             let device_type: Option<String> = row.try_get("device_type").ok().flatten();
             let last_seen_at: Option<chrono::DateTime<chrono::Utc>> =
                 row.try_get("last_seen_at").ok().flatten();
-            let created_at: chrono::DateTime<chrono::Utc> =
-                row.try_get("created_at").unwrap_or_else(|_| chrono::Utc::now());
+            let created_at: chrono::DateTime<chrono::Utc> = row
+                .try_get("created_at")
+                .unwrap_or_else(|_| chrono::Utc::now());
             DeviceResponse {
                 id,
                 name,
@@ -116,10 +117,12 @@ pub async fn revoke_device(
         .execute(&state.pool)
         .await?;
 
-    sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE device_id = $1 AND revoked_at IS NULL")
-        .bind(device_id)
-        .execute(&state.pool)
-        .await?;
+    sqlx::query(
+        "UPDATE sessions SET revoked_at = NOW() WHERE device_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(device_id)
+    .execute(&state.pool)
+    .await?;
 
     secure_vault_audit::log_event(&state.pool, auth_user.user_id, "DEVICE_REVOKED", None).await?;
 

@@ -73,10 +73,12 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         .ok_or(AppError::Unauthorized)?;
 
         let user_id: Uuid = row.try_get("user_id").map_err(|_| AppError::Unauthorized)?;
-        let expires_at: chrono::DateTime<chrono::Utc> =
-            row.try_get("expires_at").map_err(|_| AppError::Unauthorized)?;
-        let revoked_at: Option<chrono::DateTime<chrono::Utc>> =
-            row.try_get("revoked_at").map_err(|_| AppError::Unauthorized)?;
+        let expires_at: chrono::DateTime<chrono::Utc> = row
+            .try_get("expires_at")
+            .map_err(|_| AppError::Unauthorized)?;
+        let revoked_at: Option<chrono::DateTime<chrono::Utc>> = row
+            .try_get("revoked_at")
+            .map_err(|_| AppError::Unauthorized)?;
         let awaiting_2fa: bool = row
             .try_get("awaiting_2fa")
             .map_err(|_| AppError::Unauthorized)?;

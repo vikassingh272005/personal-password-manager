@@ -93,7 +93,10 @@ pub fn build_router(state: AppState) -> Router {
             get(routes::auth::refresh).post(routes::auth::refresh),
         )
         .route("/api/v1/auth/me", get(routes::auth::me))
-        .route("/api/v1/auth/2fa/setup", post(routes::auth::start_2fa_setup))
+        .route(
+            "/api/v1/auth/2fa/setup",
+            post(routes::auth::start_2fa_setup),
+        )
         .route("/api/v1/auth/2fa/verify", post(routes::auth::verify_2fa))
         .route("/api/v1/auth/2fa/disable", post(routes::auth::disable_2fa))
         .route(

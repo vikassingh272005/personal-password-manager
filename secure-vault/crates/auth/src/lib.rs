@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use sqlx::Row;
 use sqlx::PgPool;
+use sqlx::Row;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -60,7 +60,9 @@ pub async fn validate_session(pool: &PgPool, session_token: &str) -> Result<Uuid
 
     let row = row.ok_or(AuthError::InvalidCredentials)?;
 
-    let user_id: Uuid = row.try_get("user_id").map_err(|_| AuthError::InvalidCredentials)?;
+    let user_id: Uuid = row
+        .try_get("user_id")
+        .map_err(|_| AuthError::InvalidCredentials)?;
     let expires_at: chrono::DateTime<Utc> = row
         .try_get("expires_at")
         .map_err(|_| AuthError::InvalidCredentials)?;
@@ -101,11 +103,7 @@ pub async fn revoke_all_user_sessions(pool: &PgPool, user_id: Uuid) -> Result<()
     Ok(())
 }
 
-pub async fn authenticate(
-    pool: &PgPool,
-    email: &str,
-    password: &str,
-) -> Result<Uuid, AuthError> {
+pub async fn authenticate(pool: &PgPool, email: &str, password: &str) -> Result<Uuid, AuthError> {
     let row = sqlx::query("SELECT id, password_hash FROM users WHERE email = $1")
         .bind(email)
         .fetch_optional(pool)
@@ -114,15 +112,17 @@ pub async fn authenticate(
 
     let row = row.ok_or(AuthError::InvalidCredentials)?;
 
-    let user_id: Uuid = row.try_get("id").map_err(|_| AuthError::InvalidCredentials)?;
+    let user_id: Uuid = row
+        .try_get("id")
+        .map_err(|_| AuthError::InvalidCredentials)?;
     let password_hash: Option<String> = row
         .try_get("password_hash")
         .map_err(|_| AuthError::InvalidCredentials)?;
 
     let password_hash = password_hash.ok_or(AuthError::InvalidCredentials)?;
 
-    let valid = verify_password(password, &password_hash)
-        .map_err(|_| AuthError::InvalidCredentials)?;
+    let valid =
+        verify_password(password, &password_hash).map_err(|_| AuthError::InvalidCredentials)?;
 
     if !valid {
         return Err(AuthError::InvalidCredentials);

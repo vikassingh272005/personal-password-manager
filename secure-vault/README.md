@@ -96,7 +96,7 @@ PostgreSQL for storage and Docker for local infrastructure.
                               │  SQLx
               ┌───────────────▼────────────────┐
               │ PostgreSQL 16 (Docker)          │
-              │  migrations/001..002            │
+              │  migrations/001..005            │
               └────────────────────────────────┘
 ```
 
@@ -106,7 +106,7 @@ Rust crates (each with a single responsibility):
 |---|---|
 | `crates/api` | HTTP server: routes, auth extractor, admin console, error mapping, router wiring, migrations runner |
 | `crates/auth` | Session logic: create / validate / revoke sessions, password `authenticate` (also unit-tested) |
-| `crates/crypto` | All cryptography: Argon2id KDF, AES-256-GCM, HKDF, hashing, password generator, key-wrap helpers |
+| `crates/crypto` | All cryptography: Argon2id KDF, AES-256-GCM, HKDF, TOTP (RFC 6238), hashing, password generator, key-wrap helpers |
 | `crates/vault` | `VaultEngine`: serialize → encrypt / decrypt → deserialize vault documents, vault-key re-wrap (unit-tested) |
 | `crates/models` | Shared serde structs: `User`, `Vault`, `Device`, `Session`, `AuditEvent`, `VaultData`, `VaultItem`, … |
 | `crates/audit` | Audit-log insertion (`log_event`, `log_event_with_meta`) |
@@ -542,6 +542,10 @@ Full HTTP reference: `docs/api.md`.
 8. **Roles are checked server-side on every request** (fresh DB read) and admin actions are
    themselves audit-logged.
 9. **Do not invent cryptographic algorithms** — use established libraries and protocols.
+10. **TOTP two-factor** (RFC 6238) gates login: half-sessions can only answer the challenge, and
+   disabling 2FA requires both a current code and the account password.
+11. **Auth endpoints are rate-limited** (in-memory sliding window) and CORS origins are pinned via
+   `CORS_ORIGINS` rather than permissive-by-default.
 
 ---
 
@@ -549,15 +553,12 @@ Full HTTP reference: `docs/api.md`.
 
 Honest inventory of where this project stands:
 
-- **Client vault sync is not wired up.** The Rust `crypto`/`vault` engines and the `PUT /vault`
-  snapshot pipeline are complete and tested, but the Web UI's unlock/edit flow is a local,
-  in-memory demo; items added in the UI do not yet upload ciphertext or fetch/decrypt the server
-  blob. The natural next milestone is deriving the key in the browser (WebCrypto PBKDF2 — WebCrypto
-  has no native Argon2id, which is why the client uses PBKDF2 today), downloading the vault,
-  decrypting, editing, and uploading new versions.
+- **Client vault sync is live.** The browser derives the KEK with WebCrypto PBKDF2 (WebCrypto has
+  no native Argon2id), wraps a random VEK, and `useVaultSync` pushes/pulls encrypted snapshots to
+  `PUT/GET /vault` with version-conflict resolution; legacy vaults upgrade to the random-key
+  hierarchy on their next master-password change. A per-item trash / version-history view over the
+  existing `vault_snapshots` table is the natural next milestone.
 - **Passkeys/WebAuthn** are schema + stub service only.
-- **Rate limiting** exists as an unused `RateLimiter` middleware module (`LOGIN_FAILED` spam is
-  currently unbounded) — wire it onto `/auth/login` and `/auth/register`.
 - **`audit_events.ip_hash`** is not populated yet (needs client IP capture).
 - **No email verification / password reset** (deliberate for vault recovery, but account-password
   reset flows don't exist either).

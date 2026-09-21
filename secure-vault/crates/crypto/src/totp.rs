@@ -17,7 +17,7 @@ const BASE32_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /// Encode bytes as canonical RFC 4648 Base32 (no padding, uppercase).
 pub fn base32_encode(data: &[u8]) -> String {
-    let mut out = String::with_capacity((data.len() * 8 + 4) / 5);
+    let mut out = String::with_capacity((data.len() * 8).div_ceil(5));
     let mut buffer: u32 = 0;
     let mut bits = 0u32;
 
@@ -103,7 +103,10 @@ pub fn verify_totp(secret_b32: &str, code: &str, now_secs: u64, window: u32) -> 
     let counter = now_secs / 30;
     for drift in 0..=window as u64 {
         // Check the current step, then one step back and forward per window level.
-        for candidate in [counter + drift, counter.checked_sub(drift).unwrap_or(u64::MAX)] {
+        for candidate in [
+            counter + drift,
+            counter.checked_sub(drift).unwrap_or(u64::MAX),
+        ] {
             if candidate == u64::MAX {
                 continue;
             }

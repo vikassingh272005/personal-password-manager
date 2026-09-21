@@ -130,11 +130,20 @@ mod tests {
     async fn allows_up_to_limit_then_blocks() {
         let limiter = RateLimiter::new(3, Duration::from_secs(60));
         for _ in 0..3 {
-            assert!(matches!(limiter.check("1.2.3.4").await, RateDecision::Allowed));
+            assert!(matches!(
+                limiter.check("1.2.3.4").await,
+                RateDecision::Allowed
+            ));
         }
-        assert!(matches!(limiter.check("1.2.3.4").await, RateDecision::Limited));
+        assert!(matches!(
+            limiter.check("1.2.3.4").await,
+            RateDecision::Limited
+        ));
         // Different key is unaffected.
-        assert!(matches!(limiter.check("5.6.7.8").await, RateDecision::Allowed));
+        assert!(matches!(
+            limiter.check("5.6.7.8").await,
+            RateDecision::Allowed
+        ));
     }
 
     #[tokio::test]

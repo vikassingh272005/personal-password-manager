@@ -57,9 +57,7 @@ pub struct MeResponse {
 }
 
 fn session_cookie(token: &str, max_age: i64) -> String {
-    format!(
-        "session_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}"
-    )
+    format!("session_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}")
 }
 
 fn is_admin_email(config: &crate::state::AppState, email: &str) -> bool {
@@ -74,7 +72,11 @@ fn is_admin_email(config: &crate::state::AppState, email: &str) -> bool {
 /// Insert a 24h session and return its raw token (the caller sets the
 /// cookie). Sessions for accounts with 2FA start as `awaiting_2fa` and are
 /// activated by the challenge endpoint once the code is verified.
-async fn create_session(state: &AppState, user_id: Uuid, awaiting_2fa: bool) -> Result<String, AppError> {
+async fn create_session(
+    state: &AppState,
+    user_id: Uuid,
+    awaiting_2fa: bool,
+) -> Result<String, AppError> {
     let session_token = secure_vault_crypto::generate_random_string(64);
     let token_hash = secure_vault_crypto::hash_sha256(session_token.as_bytes());
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(24);
@@ -132,15 +134,13 @@ pub async fn register(
 
     let user_id = Uuid::new_v4();
 
-    sqlx::query(
-        "INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)",
-    )
-    .bind(user_id)
-    .bind(&req.email)
-    .bind(&password_hash)
-    .bind(role)
-    .execute(&state.pool)
-    .await?;
+    sqlx::query("INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)")
+        .bind(user_id)
+        .bind(&req.email)
+        .bind(&password_hash)
+        .bind(role)
+        .execute(&state.pool)
+        .await?;
 
     // Vault key material: the client derives its KEK from the master password
     // (PBKDF2-SHA256, browser WebCrypto) using this salt and iteration count,
@@ -209,18 +209,18 @@ pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<(StatusCode, HeaderMap, Json<AuthResponse>), AppError> {
-    let row = sqlx::query(
-        "SELECT id, email, password_hash, totp_enabled FROM users WHERE email = $1",
-    )
-    .bind(&req.email)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
+    let row =
+        sqlx::query("SELECT id, email, password_hash, totp_enabled FROM users WHERE email = $1")
+            .bind(&req.email)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
 
     let user_id: Uuid = row.try_get("id").map_err(|_| AppError::Unauthorized)?;
     let email: String = row.try_get("email").map_err(|_| AppError::Unauthorized)?;
-    let password_hash: Option<String> =
-        row.try_get("password_hash").map_err(|_| AppError::Unauthorized)?;
+    let password_hash: Option<String> = row
+        .try_get("password_hash")
+        .map_err(|_| AppError::Unauthorized)?;
     let password_hash = password_hash.ok_or(AppError::Unauthorized)?;
     let totp_enabled: bool = row
         .try_get("totp_enabled")
@@ -333,7 +333,9 @@ pub async fn me(
 
     let email: String = row.try_get("email").map_err(|_| AppError::NotFound)?;
     let role: String = row.try_get("role").map_err(|_| AppError::NotFound)?;
-    let totp_enabled: bool = row.try_get("totp_enabled").map_err(|_| AppError::NotFound)?;
+    let totp_enabled: bool = row
+        .try_get("totp_enabled")
+        .map_err(|_| AppError::NotFound)?;
 
     Ok(Json(MeResponse {
         user_id: auth_user.user_id,
@@ -355,7 +357,9 @@ pub async fn refresh(
 
     let email: String = row.try_get("email").map_err(|_| AppError::NotFound)?;
     let role: String = row.try_get("role").map_err(|_| AppError::NotFound)?;
-    let totp_enabled: bool = row.try_get("totp_enabled").map_err(|_| AppError::NotFound)?;
+    let totp_enabled: bool = row
+        .try_get("totp_enabled")
+        .map_err(|_| AppError::NotFound)?;
 
     Ok(Json(MeResponse {
         user_id: auth_user.user_id,
@@ -410,8 +414,13 @@ pub async fn start_2fa_setup(
         .await?;
 
     let uri = secure_vault_crypto::totp::totp_uri(&secret, &email, "SecureVault");
-    secure_vault_audit::log_event(&state.pool, auth_user.user_id, "TWO_FACTOR_SETUP_STARTED", None)
-        .await?;
+    secure_vault_audit::log_event(
+        &state.pool,
+        auth_user.user_id,
+        "TWO_FACTOR_SETUP_STARTED",
+        None,
+    )
+    .await?;
 
     Ok(Json(json!({ "secret": secret, "otpauth_uri": uri })))
 }
@@ -423,17 +432,20 @@ pub async fn verify_2fa(
     auth_user: AuthenticatedUser,
     Json(req): Json<TwoFactorCodeRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row = sqlx::query("SELECT email, totp_pending_secret, totp_enabled FROM users WHERE id = $1")
-        .bind(auth_user.user_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let row =
+        sqlx::query("SELECT email, totp_pending_secret, totp_enabled FROM users WHERE id = $1")
+            .bind(auth_user.user_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or(AppError::NotFound)?;
 
     let email: String = row.try_get("email").map_err(|_| AppError::NotFound)?;
     let pending: Option<String> = row
         .try_get("totp_pending_secret")
         .map_err(|_| AppError::NotFound)?;
-    let enabled: bool = row.try_get("totp_enabled").map_err(|_| AppError::NotFound)?;
+    let enabled: bool = row
+        .try_get("totp_enabled")
+        .map_err(|_| AppError::NotFound)?;
 
     let Some(secret) = pending.filter(|s| !s.is_empty()) else {
         return Err(AppError::Validation(
@@ -468,7 +480,9 @@ pub async fn verify_2fa(
     )
     .await?;
 
-    Ok(Json(json!({ "enabled": true, "message": "Two-factor authentication is now active" })))
+    Ok(Json(
+        json!({ "enabled": true, "message": "Two-factor authentication is now active" }),
+    ))
 }
 
 /// POST /auth/2fa/disable — require a valid current code AND the account
@@ -478,15 +492,19 @@ pub async fn disable_2fa(
     auth_user: AuthenticatedUser,
     Json(req): Json<Disable2faRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let row = sqlx::query("SELECT email, totp_secret, totp_enabled, password_hash FROM users WHERE id = $1")
-        .bind(auth_user.user_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let row = sqlx::query(
+        "SELECT email, totp_secret, totp_enabled, password_hash FROM users WHERE id = $1",
+    )
+    .bind(auth_user.user_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     let email: String = row.try_get("email").map_err(|_| AppError::NotFound)?;
     let secret: Option<String> = row.try_get("totp_secret").map_err(|_| AppError::NotFound)?;
-    let enabled: bool = row.try_get("totp_enabled").map_err(|_| AppError::NotFound)?;
+    let enabled: bool = row
+        .try_get("totp_enabled")
+        .map_err(|_| AppError::NotFound)?;
     let password_hash: Option<String> = row
         .try_get("password_hash")
         .map_err(|_| AppError::NotFound)?;
@@ -528,7 +546,9 @@ pub async fn disable_2fa(
     )
     .await?;
 
-    Ok(Json(json!({ "enabled": false, "message": "Two-factor authentication disabled" })))
+    Ok(Json(
+        json!({ "enabled": false, "message": "Two-factor authentication disabled" }),
+    ))
 }
 
 /// POST /auth/2fa/challenge — complete a half-login (session created by
@@ -561,8 +581,13 @@ pub async fn challenge_2fa(
 
     let now = chrono::Utc::now().timestamp() as u64;
     if !secure_vault_crypto::totp::verify_totp(&secret, &req.code, now, 1) {
-        secure_vault_audit::log_event(&state.pool, auth_user.user_id, "TWO_FACTOR_CHALLENGE_FAILED", None)
-            .await?;
+        secure_vault_audit::log_event(
+            &state.pool,
+            auth_user.user_id,
+            "TWO_FACTOR_CHALLENGE_FAILED",
+            None,
+        )
+        .await?;
         return Err(AppError::Unauthorized);
     }
 
@@ -583,10 +608,9 @@ pub async fn challenge_2fa(
 
 /// Helper: is 2FA active for this user?
 async fn totp_enabled(state: &AppState, user_id: Uuid) -> Result<bool, AppError> {
-    let enabled: Option<bool> =
-        sqlx::query_scalar("SELECT totp_enabled FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&state.pool)
-            .await?;
+    let enabled: Option<bool> = sqlx::query_scalar("SELECT totp_enabled FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.pool)
+        .await?;
     Ok(enabled.unwrap_or(false))
 }

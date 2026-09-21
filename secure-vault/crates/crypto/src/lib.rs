@@ -1,11 +1,11 @@
+use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
-use aes_gcm::aead::rand_core::RngCore;
 use argon2::{
     password_hash::{rand_core::OsRng as ArgonOsRng, SaltString},
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier, Algorithm, Version, Params,
+    Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version,
 };
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -80,7 +80,11 @@ impl Default for KdfParams {
     }
 }
 
-pub fn derive_key_from_password(password: &str, salt: &[u8], params: &KdfParams) -> Result<SecureBuffer, CryptoError> {
+pub fn derive_key_from_password(
+    password: &str,
+    salt: &[u8],
+    params: &KdfParams,
+) -> Result<SecureBuffer, CryptoError> {
     let argon2_params = Params::new(
         params.memory,
         params.iterations,
@@ -107,7 +111,11 @@ pub fn derive_subkey(master_key: &[u8], info: &[u8]) -> Result<SecureBuffer, Cry
     Ok(SecureBuffer::new(subkey))
 }
 
-pub fn encrypt(plaintext: &[u8], key: &[u8], aad: Option<&[u8]>) -> Result<EncryptionEnvelope, CryptoError> {
+pub fn encrypt(
+    plaintext: &[u8],
+    key: &[u8],
+    aad: Option<&[u8]>,
+) -> Result<EncryptionEnvelope, CryptoError> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidKey)?;
 
     let mut nonce_bytes = [0u8; 12];
@@ -115,10 +123,13 @@ pub fn encrypt(plaintext: &[u8], key: &[u8], aad: Option<&[u8]>) -> Result<Encry
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, aes_gcm::aead::Payload {
-            msg: plaintext,
-            aad: aad.unwrap_or(b""),
-        })
+        .encrypt(
+            nonce,
+            aes_gcm::aead::Payload {
+                msg: plaintext,
+                aad: aad.unwrap_or(b""),
+            },
+        )
         .map_err(|_| CryptoError::EncryptionFailed)?;
 
     Ok(EncryptionEnvelope {
@@ -129,16 +140,23 @@ pub fn encrypt(plaintext: &[u8], key: &[u8], aad: Option<&[u8]>) -> Result<Encry
     })
 }
 
-pub fn decrypt(envelope: &EncryptionEnvelope, key: &[u8], aad: Option<&[u8]>) -> Result<Vec<u8>, CryptoError> {
+pub fn decrypt(
+    envelope: &EncryptionEnvelope,
+    key: &[u8],
+    aad: Option<&[u8]>,
+) -> Result<Vec<u8>, CryptoError> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidKey)?;
 
     let nonce = Nonce::from_slice(&envelope.nonce);
 
     let plaintext = cipher
-        .decrypt(nonce, aes_gcm::aead::Payload {
-            msg: &envelope.ciphertext,
-            aad: aad.unwrap_or(b""),
-        })
+        .decrypt(
+            nonce,
+            aes_gcm::aead::Payload {
+                msg: &envelope.ciphertext,
+                aad: aad.unwrap_or(b""),
+            },
+        )
         .map_err(|_| CryptoError::DecryptionFailed)?;
 
     Ok(plaintext)
@@ -186,17 +204,24 @@ pub fn hash_sha256(data: &[u8]) -> Vec<u8> {
     hasher.finalize().to_vec()
 }
 
-pub fn encrypt_vault_key_placeholder(master_password: &str, salt: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn encrypt_vault_key_placeholder(
+    master_password: &str,
+    salt: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
     let kek = derive_key_from_password(master_password, salt, &KdfParams::default())?;
     let random_vek = generate_random_bytes(32);
     let envelope = encrypt(&random_vek, kek.as_bytes(), Some(b"vault-key-wrap"))?;
     serde_json::to_vec(&envelope).map_err(|_| CryptoError::EncryptionFailed)
 }
 
-pub fn decrypt_vault_key(encrypted_vault_key: &[u8], master_password: &str, salt: &[u8]) -> Result<SecureBuffer, CryptoError> {
+pub fn decrypt_vault_key(
+    encrypted_vault_key: &[u8],
+    master_password: &str,
+    salt: &[u8],
+) -> Result<SecureBuffer, CryptoError> {
     let kek = derive_key_from_password(master_password, salt, &KdfParams::default())?;
-    let envelope: EncryptionEnvelope = serde_json::from_slice(encrypted_vault_key)
-        .map_err(|_| CryptoError::DecryptionFailed)?;
+    let envelope: EncryptionEnvelope =
+        serde_json::from_slice(encrypted_vault_key).map_err(|_| CryptoError::DecryptionFailed)?;
     let vek_bytes = decrypt(&envelope, kek.as_bytes(), Some(b"vault-key-wrap"))?;
     Ok(SecureBuffer::new(vek_bytes))
 }

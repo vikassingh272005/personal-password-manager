@@ -2,7 +2,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use secure_vault_crypto::{self, EncryptionEnvelope, KdfParams, derive_key_from_password, encrypt, decrypt, generate_random_bytes};
+use secure_vault_crypto::{
+    self, decrypt, derive_key_from_password, encrypt, generate_random_bytes, EncryptionEnvelope,
+    KdfParams,
+};
 use secure_vault_models::VaultData;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,10 +29,7 @@ impl VaultEngine {
         }
     }
 
-    pub fn encrypt_vault(
-        vault: &VaultData,
-        vek: &[u8],
-    ) -> Result<EncryptedVaultSnapshot> {
+    pub fn encrypt_vault(vault: &VaultData, vek: &[u8]) -> Result<EncryptedVaultSnapshot> {
         let serialized = serde_json::to_vec(vault)?;
         let envelope = encrypt(&serialized, vek, Some(b"secure-vault-v1"))?;
 
@@ -41,10 +41,7 @@ impl VaultEngine {
         })
     }
 
-    pub fn decrypt_vault(
-        snapshot: &EncryptedVaultSnapshot,
-        vek: &[u8],
-    ) -> Result<VaultData> {
+    pub fn decrypt_vault(snapshot: &EncryptedVaultSnapshot, vek: &[u8]) -> Result<VaultData> {
         let envelope = EncryptionEnvelope {
             version: 1,
             algorithm: "AES-256-GCM".to_string(),
@@ -63,7 +60,8 @@ impl VaultEngine {
         encrypted_vault_key: &[u8],
         encrypted_vault: &EncryptedVaultSnapshot,
     ) -> Result<VaultData> {
-        let vek = secure_vault_crypto::decrypt_vault_key(encrypted_vault_key, master_password, kdf_salt)?;
+        let vek =
+            secure_vault_crypto::decrypt_vault_key(encrypted_vault_key, master_password, kdf_salt)?;
         Self::decrypt_vault(encrypted_vault, vek.as_bytes())
     }
 
@@ -73,10 +71,15 @@ impl VaultEngine {
         kdf_salt: &[u8],
         encrypted_vault_key: &[u8],
     ) -> Result<Vec<u8>> {
-        let vek = secure_vault_crypto::decrypt_vault_key(encrypted_vault_key, old_master_password, kdf_salt)?;
+        let vek = secure_vault_crypto::decrypt_vault_key(
+            encrypted_vault_key,
+            old_master_password,
+            kdf_salt,
+        )?;
 
         let new_salt = generate_random_bytes(32);
-        let new_kek = derive_key_from_password(new_master_password, &new_salt, &KdfParams::default())?;
+        let new_kek =
+            derive_key_from_password(new_master_password, &new_salt, &KdfParams::default())?;
         let envelope = encrypt(vek.as_bytes(), new_kek.as_bytes(), Some(b"vault-key-wrap"))?;
         serde_json::to_vec(&envelope).map_err(|e| anyhow::anyhow!(e))
     }
@@ -116,6 +119,9 @@ mod tests {
 
         assert_eq!(decrypted.items.len(), 1);
         assert_eq!(decrypted.items[0].title, "GitHub");
-        assert_eq!(decrypted.items[0].password.as_ref().unwrap(), "super-secret");
+        assert_eq!(
+            decrypted.items[0].password.as_ref().unwrap(),
+            "super-secret"
+        );
     }
 }

@@ -17,8 +17,9 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn from_env() -> Result<Self> {
         Ok(Self {
-            database_url: std::env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/secure_vault".to_string()),
+            database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://postgres:postgres@localhost:5432/secure_vault".to_string()
+            }),
             session_secret: std::env::var("SESSION_SECRET")
                 .unwrap_or_else(|_| "change-me-in-production".to_string()),
             port: std::env::var("PORT")

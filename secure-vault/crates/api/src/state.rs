@@ -21,10 +21,7 @@ impl AppState {
             pool,
             config,
             login_limiter: Arc::new(RateLimiter::new(10, std::time::Duration::from_secs(60))),
-            register_limiter: Arc::new(RateLimiter::new(
-                5,
-                std::time::Duration::from_secs(300),
-            )),
+            register_limiter: Arc::new(RateLimiter::new(5, std::time::Duration::from_secs(300))),
         }
     }
 }

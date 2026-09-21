@@ -12,11 +12,14 @@ pub struct PasskeyRegistration {
 pub struct WebAuthnService;
 
 impl WebAuthnService {
-    pub fn generate_registration_options(_user_id: Uuid, _user_email: &str) -> Result<serde_json::Value> {
+    pub fn generate_registration_options(
+        _user_id: Uuid,
+        _user_email: &str,
+    ) -> Result<serde_json::Value> {
         Ok(serde_json::json!({
             "challenge": base64::Engine::encode(
                 &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-                &secure_vault_crypto::generate_random_bytes(32)
+                secure_vault_crypto::generate_random_bytes(32)
             ),
             "rp": {
                 "name": "SecureVault",
@@ -26,10 +29,7 @@ impl WebAuthnService {
         }))
     }
 
-    pub fn verify_registration(
-        _credential_id: &[u8],
-        _public_key: &[u8],
-    ) -> Result<bool> {
+    pub fn verify_registration(_credential_id: &[u8], _public_key: &[u8]) -> Result<bool> {
         Ok(true)
     }
 
@@ -39,7 +39,7 @@ impl WebAuthnService {
         Ok(serde_json::json!({
             "challenge": base64::Engine::encode(
                 &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-                &secure_vault_crypto::generate_random_bytes(32)
+                secure_vault_crypto::generate_random_bytes(32)
             ),
             "userVerification": "preferred"
         }))

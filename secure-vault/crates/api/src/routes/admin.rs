@@ -73,7 +73,10 @@ pub async fn overview(
     // Note: views are deliberately NOT audit-logged. Logging reads would
     // pollute the feed with "ADMIN_*_VIEWED" rows every time the console is
     // opened — only actions (role changes, revocations) are recorded.
-    Ok(Json(OverviewResponse { totals, recent_events: events }))
+    Ok(Json(OverviewResponse {
+        totals,
+        recent_events: events,
+    }))
 }
 
 async fn recent_events(state: &AppState) -> Result<Vec<AuditEventRow>, AppError> {
@@ -174,7 +177,8 @@ pub async fn set_role(
 
     if auth_user.user_id == user_id {
         return Err(AppError::Validation(
-            "Admins cannot change their own role — have another admin do it, or set ADMIN_EMAILS".into(),
+            "Admins cannot change their own role — have another admin do it, or set ADMIN_EMAILS"
+                .into(),
         ));
     }
 
@@ -205,9 +209,7 @@ pub async fn set_role(
             .fetch_one(&state.pool)
             .await?;
         if admins <= 1 {
-            return Err(AppError::Conflict(
-                "Cannot demote the last admin".into(),
-            ));
+            return Err(AppError::Conflict("Cannot demote the last admin".into()));
         }
     }
 
@@ -334,9 +336,7 @@ pub async fn list_audit(
         if let Some(user_id) = &query.user_id {
             qb.push(" AND a.user_id = ").push_bind(user_id);
         }
-        qb.build_query_scalar()
-            .fetch_one(&state.pool)
-            .await?
+        qb.build_query_scalar().fetch_one(&state.pool).await?
     };
 
     let events: Vec<AuditEventRow> = {
