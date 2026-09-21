@@ -104,6 +104,33 @@ pub fn build_router(state: AppState) -> Router {
             post(routes::auth::challenge_2fa),
         )
         .route(
+            "/api/v1/auth/passkeys/register/options",
+            post(routes::passkeys::register_options),
+        )
+        .route(
+            "/api/v1/auth/passkeys/register/finish",
+            post(routes::passkeys::register_finish),
+        )
+        .route(
+            "/api/v1/auth/passkeys/login/options",
+            post(routes::passkeys::login_options),
+        )
+        .route(
+            "/api/v1/auth/passkeys/login/finish",
+            post(routes::passkeys::login_finish).layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::middleware::rate_limit::rate_limit_login,
+            )),
+        )
+        .route(
+            "/api/v1/auth/passkeys",
+            get(routes::passkeys::list_passkeys),
+        )
+        .route(
+            "/api/v1/auth/passkeys/:passkey_id",
+            delete(routes::passkeys::revoke_passkey),
+        )
+        .route(
             "/api/v1/vault",
             get(routes::vault::get_vault).put(routes::vault::update_vault),
         )

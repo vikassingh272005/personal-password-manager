@@ -27,9 +27,13 @@ import {
   Download,
   ShieldAlert,
   Smartphone,
+  Fingerprint,
+  Trash2,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { cn } from '@/lib/crypto';
+import { createPasskey, passkeysSupported } from '@/lib/passkeys';
+import type { PasskeyInfo } from '@/lib/api';
 
 export default function SettingsPage() {
   const { lockTimeout, setLockTimeout } = useVaultStore();
@@ -43,6 +47,56 @@ export default function SettingsPage() {
   const [mpBusy, setMpBusy] = useState(false);
   const [mpSuccess, setMpSuccess] = useState<string | null>(null);
 
+  // ---- Passkey state ----
+  const [passkeys, setPasskeys] = useState<PasskeyInfo[]>([]);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [passkeySuccess, setPasskeySuccess] = useState<string | null>(null);
+
+  const refreshPasskeys = async () => {
+    try {
+      const res = await api.auth.listPasskeys();
+      setPasskeys(res.passkeys);
+    } catch {
+      setPasskeys([]);
+    }
+  };
+
+  const addPasskey = async () => {
+    setPasskeyError(null);
+    setPasskeySuccess(null);
+    setPasskeyBusy(true);
+    try {
+      const { ceremony_id, options } = await api.auth.startPasskeyRegistration();
+      const attestation = await createPasskey(options);
+      await api.auth.finishPasskeyRegistration({
+        ceremony_id,
+        ...attestation,
+        name: options.rp.name || 'This device',
+      });
+      setPasskeySuccess('Passkey added — you can now sign in without a password.');
+      await refreshPasskeys();
+    } catch (err: any) {
+      if (err?.name !== 'NotAllowedError') {
+        setPasskeyError(err.message);
+      }
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const removePasskey = async (id: string) => {
+    setPasskeyError(null);
+    setPasskeySuccess(null);
+    try {
+      await api.auth.revokePasskey(id);
+      setPasskeys((prev) => prev.filter((p) => p.id !== id));
+      setPasskeySuccess('Passkey removed.');
+    } catch (err: any) {
+      setPasskeyError(err.message);
+    }
+  };
+
   // ---- Recovery kit state ----
   const [kitBusy, setKitBusy] = useState(false);
   const [kitError, setKitError] = useState<string | null>(null);
@@ -52,6 +106,7 @@ export default function SettingsPage() {
 
   // ---- Two-factor (TOTP) state ----
   const totpEnabled = useAuthStore((s) => s.user?.totp_enabled ?? false);
+  const authUser = useAuthStore((s) => s.user);
   const refreshAuth = useAuthStore((s) => s.refresh);
   const [enrolling, setEnrolling] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -72,6 +127,13 @@ export default function SettingsPage() {
       .then(setMeta)
       .catch(() => setMeta(null));
   }, [isUnlocked]);
+
+  // Load the account's passkeys when signed in.
+  useEffect(() => {
+    if (!authUser) return;
+    refreshPasskeys();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser?.user_id]);
 
   const sessionExpired = (message: string) =>
     message.includes('401') || message.toLowerCase().includes('authentication failed');
@@ -531,6 +593,63 @@ export default function SettingsPage() {
           <button onClick={startTotpSetup} disabled={totpBusy} className="btn-primary mt-5">
             {totpBusy ? 'Generating…' : 'Set Up Two-Factor'}
           </button>
+        )}
+      </section>
+
+      {/* ---- Passkeys ---- */}
+      <section className="card p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <Fingerprint className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Passkeys</h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              Sign in with your fingerprint, face, or device PIN — no password
+              needed at login. Passkeys live in this device&apos;s secure hardware
+              and never leave it.
+            </p>
+          </div>
+        </div>
+
+        {passkeyError && <div className="alert-error mt-5">{passkeyError}</div>}
+        {passkeySuccess && <div className="alert-success mt-5">{passkeySuccess}</div>}
+
+        {passkeys.length > 0 && (
+          <ul className="mt-5 divide-y divide-border rounded-xl border border-border">
+            {passkeys.map((pk) => (
+              <li key={pk.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{pk.name || 'Passkey'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Added {pk.created_at ? new Date(pk.created_at).toLocaleDateString() : '—'}
+                    {pk.last_used_at
+                      ? ` · last used ${new Date(pk.last_used_at).toLocaleDateString()}`
+                      : ' · never used'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removePasskey(pk.id)}
+                  className="btn-ghost shrink-0 !px-2 text-muted-foreground hover:text-red-400"
+                  aria-label={`Remove ${pk.name || 'passkey'}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {passkeysSupported() ? (
+          <button onClick={addPasskey} disabled={passkeyBusy} className="btn-primary mt-5">
+            <Fingerprint className="h-4 w-4" />
+            {passkeyBusy ? 'Waiting for authenticator…' : 'Add a passkey'}
+          </button>
+        ) : (
+          <p className="mt-5 text-sm text-muted-foreground">
+            This browser does not support passkeys.
+          </p>
         )}
       </section>
 

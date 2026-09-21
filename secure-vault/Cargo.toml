@@ -35,6 +35,8 @@ argon2 = "0.5"
 aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+rsa = { version = "0.9", features = ["sha2"] }
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
 thiserror = "2"

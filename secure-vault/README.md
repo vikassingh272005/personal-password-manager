@@ -71,7 +71,7 @@ PostgreSQL for storage and Docker for local infrastructure.
 | Security center | Local analysis of vault items: weak / reused / missing passwords, overall score /100. Nothing is sent to the server. |
 | Auto-lock | Vault locks after inactivity (configurable 1/5/15/30 min or never); keys are dropped from memory on lock. |
 | Clipboard hygiene | Copied passwords are cleared from the clipboard after 30 seconds. |
-| Passkeys (planned) | Schema (`passkeys` table) and a stub WebAuthn service exist; verification is not implemented yet. |
+| Passkeys (WebAuthn) | Register a platform passkey (Touch ID / Windows Hello / security key) as a second factor, then sign in with it alone — no password. Full server-side verification: CBOR attestation parsing, COSE key handling (ES256 + RS256), challenge/origin/RP-ID binding, UV enforcement, signature-counter replay protection. Ceremony-tested against synthetic P-256 credentials. |
 
 ---
 
@@ -282,8 +282,22 @@ now()`, audit indexes on `created_at DESC` and `event_type` for the admin feed.
   a middleware layer; earlier versions of this codebase that layered middleware never compiled on
   the pinned axum.)
 - **Logout** revokes all of the user's sessions and clears the cookie.
-- **`GET /auth/me`** returns `{ user_id, email, role }` — the UI uses it to show/hide the Admin
-  console and to gate pages.
+- **`GET /auth/me`** returns `{ user_id, email, role, totp_enabled }` — the UI uses it to show/hide
+  the Admin console, gate pages, and reflect 2FA status.
+- **Passkeys** (`/auth/passkeys/*`): a second, passwordless way in.
+  - `POST /auth/passkeys/register/options` → `PublicKeyCredentialCreationOptions` + a
+    single-use `ceremony_id` (challenges live in-memory, 5 min TTL, bound to the session's email).
+  - `POST /auth/passkeys/register/finish` verifies the attestation (challenge, origin,
+    RP-ID hash, UP flag; `none` and `packed` self-attestation formats) and stores the
+    credential's COSE public key + signature counter in `passkeys`.
+  - `POST /auth/passkeys/login/options` (empty body = usernameless/discoverable) and
+    `.../login/finish` verify the assertion — signatures cover
+    `authData || SHA-256(clientDataJSON)` per §6.5.6, user verification is **required**
+    (a passkey is the only factor in that flow), and the counter must move forward.
+    A verified assertion mints a **full session** and logs `LOGIN_PASSKEY`.
+  - `GET /auth/passkeys` and `DELETE /auth/passkeys/:id` manage registered credentials.
+  - Rate limiting is shared with password login; a passkey proves the account, but the
+    vault itself still needs the master password or Secret Key client-side.
 
 ### Roles & the admin console
 
@@ -327,7 +341,10 @@ from axum 0.8; earlier versions of this codebase used `{id}` and every parameter
 |---|---|---|
 | `USER_REGISTERED` | New account | `{role}` |
 | `LOGIN_SUCCESS` / `LOGIN_FAILED` | Login attempt | — |
+| `LOGIN_PASSKEY` | Successful passkey-only sign-in | — |
 | `LOGOUT` | Logout | — |
+| `PASSKEY_REGISTERED` / `PASSKEY_REVOKED` | Passkey lifecycle | — |
+| `TWO_FACTOR_SETUP_STARTED` / `TWO_FACTOR_ENABLED` / `TWO_FACTOR_DISABLED` / `TWO_FACTOR_CHALLENGE_FAILED` | TOTP lifecycle | `{target_user}` where relevant |
 | `VAULT_UPDATED` | Accepted vault upload | `{version, blob_bytes}` |
 | `DEVICE_ADDED` / `DEVICE_REVOKED` | Device lifecycle | — |
 | `ADMIN_ROLE_CHANGED` | Role change by an admin | `{target_user, target_user_id, previous_role, new_role}` |

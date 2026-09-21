@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { Lock, ShieldCheck } from 'lucide-react';
+import { Fingerprint, Lock, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
+import { createPasskey, getPasskeyAssertion, passkeysSupported } from '@/lib/passkeys';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +17,29 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+
+  /** Passkey-only sign-in: usernameless — the authenticator offers its
+   * discoverable credentials for this site and the user picks one. */
+  const handlePasskeyLogin = async () => {
+    setError(null);
+    setPasskeyBusy(true);
+    try {
+      const { ceremony_id, options } = await api.auth.startPasskeyLogin();
+      const assertion = await getPasskeyAssertion(options);
+      await api.auth.finishPasskeyLogin({ ceremony_id, ...assertion });
+      router.push('/unlock');
+    } catch (err: any) {
+      // The DOM API throws on user cancellation — keep that silent.
+      if (err?.name === 'NotAllowedError') {
+        setError(null);
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,6 +151,24 @@ export default function LoginPage() {
               <button type="submit" disabled={loading} className="btn-primary w-full">
                 {loading ? 'Signing in…' : 'Sign In'}
               </button>
+              {passkeysSupported() && (
+                <>
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs text-muted-foreground">or</span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePasskeyLogin}
+                    disabled={passkeyBusy || loading}
+                    className="btn-secondary w-full"
+                  >
+                    <Fingerprint className="h-4 w-4" />
+                    {passkeyBusy ? 'Waiting for authenticator…' : 'Sign in with passkey'}
+                  </button>
+                </>
+              )}
             </>
           )}
         </form>

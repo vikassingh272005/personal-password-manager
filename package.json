@@ -1,0 +1,13 @@
+{
+  "name": "secure-vault",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-knowledge password manager — Rust API + Next.js web (see secure-vault/)",
+  "scripts": {
+    "dev": "node secure-vault/scripts/dev.mjs",
+    "seed": "node secure-vault/scripts/seed-demo.mjs",
+    "test": "cargo test --workspace --manifest-path secure-vault/Cargo.toml",
+    "lint": "cargo clippy --workspace --manifest-path secure-vault/Cargo.toml -- -D warnings && npm run lint --prefix secure-vault/apps/web",
+    "build": "cargo build --workspace --manifest-path secure-vault/Cargo.toml && npm run build --prefix secure-vault/apps/web"
+  }
+}

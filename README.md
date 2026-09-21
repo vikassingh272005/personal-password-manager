@@ -31,6 +31,28 @@ only ciphertext.
 
 ## Quickstart
 
+One command — starts Postgres (Docker), the API, the web app, and seeds a
+demo account with sample vault items:
+
+```bash
+npm install   # once, for the web app deps
+npm run dev   # then open http://localhost:3000
+```
+
+Demo login (seeded by `npm run dev` / `npm run seed`):
+
+| what | value |
+|---|---|
+| email | `demo@securevault.local` |
+| account password | `demo-password-123` |
+| master password | `demo-master-456` |
+
+The seed runs the real client-side key ceremony (never plain SQL), so the
+demo vault is a genuine zero-knowledge vault. Reset it any time:
+`node secure-vault/scripts/seed-demo.mjs --reset`.
+
+Manual steps, if you prefer:
+
 ```bash
 # 1. Database
 cd secure-vault && docker compose up -d     # postgres on :5433
@@ -47,6 +69,14 @@ cd apps/web && npm install && npm run dev
 
 Health: `GET /health` (liveness) and `GET /ready` (migrations applied).
 First account listed in `ADMIN_EMAILS` is elevated to admin at login.
+
+### Sign-in options
+
+- **Password** (+ TOTP second factor when enabled)
+- **Passkey** — register a fingerprint / face / device-PIN credential in
+  Settings, then use "Sign in with passkey" on the login page for a
+  passwordless sign-in. Verified server-side against the WebAuthn spec
+  (challenge, origin, RP-ID hash, UV flag, signature counters).
 
 ## Tests & CI
 

@@ -35,6 +35,14 @@ export interface Me {
   totp_enabled: boolean;
 }
 
+/** A registered passkey (WebAuthn credential) on the account. */
+export interface PasskeyInfo {
+  id: string;
+  name: string | null;
+  created_at: string | null;
+  last_used_at: string | null;
+}
+
 /** A wrapped copy of the vault encryption key (base64 over the wire). */
 export interface KeyWrap {
   ciphertext: string;
@@ -154,6 +162,46 @@ export const api = {
         method: 'POST',
         body: { code },
       }),
+    // ---- WebAuthn passkeys ----
+    listPasskeys: () =>
+      request<{ passkeys: PasskeyInfo[] }>('/auth/passkeys', { method: 'GET' }),
+    revokePasskey: (id: string) =>
+      request<{ revoked: boolean }>(`/auth/passkeys/${id}`, { method: 'DELETE' }),
+    /** Begin adding a passkey: returns PublicKeyCredentialCreationOptions plus
+     * the ceremony id that must accompany the finish call. */
+    startPasskeyRegistration: () =>
+      request<{ ceremony_id: string; options: PublicKeyCredentialCreationOptionsJSON }>(
+        '/auth/passkeys/register/options',
+        { method: 'POST' }
+      ),
+    finishPasskeyRegistration: (data: {
+      ceremony_id: string;
+      credential_id: string;
+      attestation_object: string;
+      client_data_json: string;
+      name?: string;
+    }) =>
+      request<{ registered: boolean; message: string }>('/auth/passkeys/register/finish', {
+        method: 'POST',
+        body: data,
+      }),
+    /** Begin passkey sign-in. Empty email = usernameless (discoverable). */
+    startPasskeyLogin: (email?: string) =>
+      request<{ ceremony_id: string; options: PublicKeyCredentialRequestOptionsJSON }>(
+        '/auth/passkeys/login/options',
+        { method: 'POST', body: { email: email || null } }
+      ),
+    finishPasskeyLogin: (data: {
+      ceremony_id: string;
+      credential_id: string;
+      authenticator_data: string;
+      client_data_json: string;
+      signature: string;
+    }) =>
+      request<{ user_id: string; email: string; role: string; message: string }>(
+        '/auth/passkeys/login/finish',
+        { method: 'POST', body: data }
+      ),
   },
   vault: {
     get: () => request<VaultMeta>('/vault'),

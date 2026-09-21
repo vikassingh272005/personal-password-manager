@@ -56,7 +56,7 @@ pub struct MeResponse {
     pub totp_enabled: bool,
 }
 
-fn session_cookie(token: &str, max_age: i64) -> String {
+pub fn session_cookie(token: &str, max_age: i64) -> String {
     format!("session_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}")
 }
 
