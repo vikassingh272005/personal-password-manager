@@ -2,19 +2,29 @@
 
 Base URL: `/api/v1`
 
+All bodies are JSON. Errors use `{ "error": "..." }` with meaningful status
+codes (401/403/404/400/409/413/429/500). Request bodies are capped at 2 MiB
+(413 above that). The session cookie is `HttpOnly; SameSite=Lax`, plus
+`Secure` when `APP_ENV=production`.
+
 ## Authentication
 
 ### POST /auth/register
 ```json
-{ "email": "...", "password": "...", "master_password": "..." }
+{ "email": "...", "password": "..." }
 ```
-Creates an account and an empty encrypted vault. The master password is **never stored server-side** — only the encrypted VEK and KDF parameters.
+Creates an account (Argon2id-hashed password, ≥12 chars, RFC-style email
+check) and an empty encrypted vault; returns KDF parameters for the client
+to derive its KEK. The master password is **never transmitted or stored**.
+The first registered account becomes admin only outside production.
 
 ### POST /auth/login
 ```json
 { "email": "...", "password": "..." }
 ```
-Returns a session cookie. This authenticates the user to the service.
+Returns a session cookie (`202` + `two_factor_required` when TOTP is on).
+Responses are timing-equalized for unknown emails; login attempts are
+rate-limited per IP.
 
 ### POST /auth/logout
 Revokes all sessions for the current user.
@@ -65,6 +75,23 @@ Register a device.
 
 ### DELETE /devices/:id
 Revoke a device and its sessions.
+
+## Account
+
+### DELETE /account
+```json
+{ "password": "..." }
+```
+Permanently deletes the signed-in account: the encrypted vault, every
+snapshot, device, passkey and session are cascaded away in one transaction.
+Requires the **account password** (a stolen session alone cannot delete an
+account). Audit events are preserved by re-pointing them at a tombstone
+account, and an `ACCOUNT_DELETED_SELF` event records the deletion. Clears
+the session cookie.
+
+### DELETE /admin/users/:user_id/account
+Admin-initiated deletion of **another** account (refuses the acting admin
+and the last remaining admin). Audited as `ACCOUNT_DELETED_ADMIN`.
 
 ## Admin (role-gated)
 

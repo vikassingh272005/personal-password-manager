@@ -64,15 +64,28 @@ const demoAccounts = [
 export default function Home() {
   return (
     <div className="space-y-20 pb-16">
+      {/* ---- Top nav (marketing header; the Sidebar covers authenticated md+ routes) ---- */}
+      <header className="rise flex items-center justify-between">
+        <SecureXLogo />
+        <nav className="flex items-center gap-2.5" aria-label="Account">
+          <a href="/login" className="btn-ghost !px-4 !py-2 text-xs">
+            Sign in
+          </a>
+          <a href="/register" className="btn-primary !px-4 !py-2 text-xs">
+            Get Started
+          </a>
+        </nav>
+      </header>
+
       {/* ---- Watermark ---- */}
-      <div aria-hidden className="watermark pt-4">
-        Password
+      <div aria-hidden className="watermark rise -mt-10 pt-4">
+        Your Keys,
         <br />
-        Manager
+        Your Vault
       </div>
 
       {/* ---- Onboarding hero + live UI previews ---- */}
-      <section className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+      <section className="rise-1 grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
         {/* Onboarding card — replicates the left mockup */}
         <PhoneShell>
           <div className="flex min-h-[480px] flex-col justify-end px-2 pb-2 pt-16">
@@ -198,7 +211,7 @@ export default function Home() {
       </section>
 
       {/* ---- Feature grid ---- */}
-      <section>
+      <section className="rise-2">
         <h2 className="text-center text-2xl font-bold tracking-tight text-white">
           Everything a modern vault needs
         </h2>
@@ -221,7 +234,7 @@ export default function Home() {
       </section>
 
       {/* ---- Monitor callout ---- */}
-      <section className="glass relative overflow-hidden p-10">
+      <section className="glass rise-3 relative overflow-hidden p-10">
         <div className="relative flex flex-col items-center gap-6 text-center sm:flex-row sm:justify-between sm:text-left">
           <div className="max-w-lg">
             <div className="flex items-center gap-2">

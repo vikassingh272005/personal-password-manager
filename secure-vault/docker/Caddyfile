@@ -1,0 +1,26 @@
+# Caddy reverse proxy: automatic HTTPS via Let's Encrypt (HTTP-01).
+# Requires DOMAIN to point at this host and ports 80/443 to be open.
+# ACME_EMAIL is optional but recommended so expiry notices reach you.
+
+{
+    email {$ACME_EMAIL}
+}
+
+https://{$DOMAIN} {
+    # HSTS: browsers refuse plain HTTP for this domain after first visit.
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    # A session cookie must never travel over plain HTTP.
+    # (The API also marks cookies Secure in production; this is belt+braces.)
+    header X-Content-Type-Options "nosniff"
+
+    # The web client serves the UI and proxies /api/* to the API, so browser
+    # traffic is same-origin and cookies stay first-party.
+    reverse_proxy web:3000
+}
+
+# HTTP → HTTPS redirect (Caddy adds this automatically for site blocks, but
+# keep an explicit block so health probes on :80 get a clean answer).
+http://{$DOMAIN} {
+    redir https://{$DOMAIN}{uri} permanent
+}

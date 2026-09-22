@@ -48,7 +48,8 @@ export default function AdminAuditPage() {
               setEventType(e.target.value);
               setOffset(0);
             }}
-            className="input w-auto py-2 text-sm"
+            className="select-pill w-auto"
+            aria-label="Filter audit log by event type"
           >
             <option value="">All events</option>
             {EVENT_TYPES.map((t) => (

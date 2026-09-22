@@ -96,6 +96,21 @@ fn client_ip_key(req: &Request<axum::body::Body>) -> String {
     "unknown".to_string()
 }
 
+/// Best-effort client-IP *label* for audit hashing, with the same precedence
+/// as `client_ip_key`: X-Forwarded-For first hop when present, else the socket
+/// peer. Only the salted SHA-256 of this value is ever persisted (see
+/// `secure_vault_audit::log_event_with_ip`).
+pub fn client_ip_for_audit(peer: Option<SocketAddr>, headers: &axum::http::HeaderMap) -> String {
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        let first = xff.split(',').next().unwrap_or("").trim();
+        if !first.is_empty() {
+            return first.to_string();
+        }
+    }
+    peer.map(|a| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// Rate-limit middleware for POST /auth/login (10 requests / minute / IP).
 pub async fn rate_limit_login(
     State(state): State<crate::state::AppState>,

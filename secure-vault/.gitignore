@@ -8,6 +8,12 @@ target/
 .env.local
 .env.*.local
 
+# Production secrets (template .env.prod.example IS committed)
+.env.prod
+
+# Local database dumps from docker/backup-db.sh
+backups/
+
 # Build
 dist/
 build/
@@ -25,6 +31,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Next.js standalone output
+apps/web/.next/standalone/
+apps/web/.next/static/
 
 # Co-pilot / Claude
 .claude/

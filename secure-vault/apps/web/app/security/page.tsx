@@ -3,9 +3,39 @@
 import { useVaultStore } from '@/hooks/useVault';
 import { getPasswordStrength } from '@/lib/crypto';
 import { KeyRound, ShieldCheck, AlertTriangle, Repeat, CheckCircle2, Lock } from 'lucide-react';
+import Link from 'next/link';
 
 export default function SecurityPage() {
-  const { items } = useVaultStore();
+  const { items, isLocked } = useVaultStore();
+
+  // The analysis only exists after local decryption — never show a misleading
+  // "score 100" for data that isn't loaded (mirrors /dashboard and /monitor).
+  if (isLocked) {
+    return (
+      <div className="rise space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Security Center</h1>
+          <p className="mt-1.5 text-muted-foreground">
+            Password analysis happens locally after vault decryption. Nothing is sent to the server.
+          </p>
+        </div>
+        <div className="card flex flex-col items-center gap-4 p-16 text-center">
+          <div className="icon-disc !h-12 !w-12">
+            <Lock className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="font-medium">Your vault is locked</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Unlock to analyze password strength, reuse, and coverage.
+            </p>
+          </div>
+          <Link href="/unlock" className="btn-primary mt-2">
+            Unlock Vault
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   const analysis = items.reduce(
     (acc, item) => {
@@ -49,7 +79,7 @@ export default function SecurityPage() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="rise space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Security Center</h1>
         <p className="mt-1.5 text-muted-foreground">

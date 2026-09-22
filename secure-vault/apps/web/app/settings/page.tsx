@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useVaultStore } from '@/hooks/useVault';
 import { useAuthStore } from '@/hooks/useAuth';
 import { api, type VaultMeta } from '@/lib/api';
@@ -32,12 +33,111 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { cn } from '@/lib/crypto';
+import {
+  createEncryptedExport,
+  downloadExportFile,
+  openEncryptedExport,
+  readExportFile,
+} from '@/lib/vaultTransfer';
 import { createPasskey, passkeysSupported } from '@/lib/passkeys';
 import type { PasskeyInfo } from '@/lib/api';
 
 export default function SettingsPage() {
   const { lockTimeout, setLockTimeout } = useVaultStore();
   const [meta, setMeta] = useState<VaultMeta | null>(null);
+
+  // ---- Data: encrypted export / import / account deletion ----------------
+  const vaultItems = useVaultStore((s) => s.items);
+  const vaultFolders = useVaultStore((s) => s.folders);
+  const vaultKey = useVaultStore((s) => s.key);
+  const addItemToStore = useVaultStore((s) => s.addItem);
+  const lockVault = useVaultStore((s) => s.lock);
+  const router = useRouter();
+  const [exportPass, setExportPass] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPass, setImportPass] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    setExportError(null);
+    if (!vaultKey) {
+      setExportError('Unlock your vault first — export works on decrypted data.');
+      return;
+    }
+    if (exportPass.length < 8) {
+      setExportError('Use a passphrase of at least 8 characters for the export file.');
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const exportFile = await createEncryptedExport(exportPass, vaultItems, vaultFolders);
+      downloadExportFile(exportFile);
+      setExportPass('');
+    } catch (err: unknown) {
+      setExportError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const handleImport = async () => {
+    setImportError(null);
+    setImportResult(null);
+    if (!importFile || !vaultKey) {
+      setImportError('Choose an export file (and unlock your vault) first.');
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const parsed = await readExportFile(importFile);
+      const { items, folders } = await openEncryptedExport(importPass, parsed);
+      const existingIds = new Set(vaultItems.map((i) => i.id));
+      let added = 0;
+      for (const item of items) {
+        if (existingIds.has(item.id)) continue; // no silent overwrite
+        addItemToStore(item);
+        added += 1;
+      }
+      // Folders merge through the next sync (envelope carries the union).
+      const mergedFolders = Array.from(new Set([...vaultFolders, ...folders]));
+      useVaultStore.setState({ folders: mergedFolders });
+      setImportResult(`Imported ${added} item${added === 1 ? '' : 's'} — syncing…`);
+      setImportFile(null);
+      setImportPass('');
+      if (importFileRef.current) importFileRef.current.value = '';
+    } catch (err: unknown) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteError(null);
+    if (deleteConfirm !== 'DELETE') {
+      setDeleteError('Type DELETE to confirm.');
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await api.account.delete(deletePassword);
+      lockVault();
+      useAuthStore.getState().clear();
+      router.push('/');
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Deletion failed');
+      setDeleteBusy(false);
+    }
+  };
 
   // ---- Master password change state ----
   const [currentMaster, setCurrentMaster] = useState('');
@@ -50,6 +150,8 @@ export default function SettingsPage() {
   // ---- Passkey state ----
   const [passkeys, setPasskeys] = useState<PasskeyInfo[]>([]);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeySuccess, setPasskeySuccess] = useState<string | null>(null);
 
@@ -641,7 +743,7 @@ export default function SettingsPage() {
           </ul>
         )}
 
-        {passkeysSupported() ? (
+        {mounted && passkeysSupported() ? (
           <button onClick={addPasskey} disabled={passkeyBusy} className="btn-primary mt-5">
             <Fingerprint className="h-4 w-4" />
             {passkeyBusy ? 'Waiting for authenticator…' : 'Add a passkey'}
@@ -790,23 +892,125 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Data</h2>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              Backup and transfer are planned as client-side, encrypted operations.
+              Encrypted backups happen entirely in your browser: exports are
+              AES-256-GCM files locked with a passphrase only you know. The
+              server never sees them.
             </p>
           </div>
         </div>
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <button className="btn-ghost" disabled title="Not available in this build">
-            Export Vault
+
+        <div className="mt-5 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-border/60 p-4">
+            <h3 className="text-sm font-semibold">Export vault</h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Downloads an encrypted <code>.json</code> file with every item and
+              folder. Keep the passphrase safe — it is the only way to open the
+              file.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                className="input flex-1 min-w-[12rem]"
+                placeholder="Export passphrase (min 8 chars)"
+                value={exportPass}
+                onChange={(e) => setExportPass(e.target.value)}
+                autoComplete="new-password"
+              />
+              <button
+                className="btn-primary"
+                onClick={handleExport}
+                disabled={exportBusy || !vaultKey}
+                title={vaultKey ? undefined : 'Unlock the vault first'}
+              >
+                <Download className="mr-1.5 inline h-4 w-4" />
+                {exportBusy ? 'Exporting…' : 'Export Vault'}
+              </button>
+            </div>
+            {exportError && (
+              <p className="mt-2 text-xs text-red-400">{exportError}</p>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-border/60 p-4">
+            <h3 className="text-sm font-semibold">Import vault</h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Merges items from an export file into this vault. Existing items
+              are never overwritten; duplicates are skipped.
+            </p>
+            <div className="mt-3 space-y-2">
+              <input
+                ref={importFileRef}
+                type="file"
+                accept="application/json,.json"
+                className="input file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-1 file:text-primary"
+                onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="password"
+                  className="input flex-1 min-w-[12rem]"
+                  placeholder="Passphrase of the export file"
+                  value={importPass}
+                  onChange={(e) => setImportPass(e.target.value)}
+                  autoComplete="off"
+                />
+                <button
+                  className="btn-primary"
+                  onClick={handleImport}
+                  disabled={importBusy || !importFile || !vaultKey}
+                  title={vaultKey ? undefined : 'Unlock the vault first'}
+                >
+                  {importBusy ? 'Importing…' : 'Import Vault'}
+                </button>
+              </div>
+            </div>
+            {importError && <p className="mt-2 text-xs text-red-400">{importError}</p>}
+            {importResult && (
+              <p className="mt-2 text-xs text-emerald-400">{importResult}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+              <ShieldAlert className="h-4 w-4 text-red-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Danger zone</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Permanently deletes your account, the encrypted vault, every
+                device, passkey and session on the server. This cannot be
+                undone — export a backup first if you might need the data.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <input
+              type="password"
+              className="input"
+              placeholder="Confirm with your account password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              autoComplete="current-password"
+            />
+            <input
+              type="text"
+              className="input"
+              placeholder="Type DELETE to confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+            />
+          </div>
+          <button
+            className="btn-danger mt-3"
+            onClick={handleDeleteAccount}
+            disabled={deleteBusy || deleteConfirm !== 'DELETE' || deletePassword.length === 0}
+          >
+            <Trash2 className="mr-1.5 inline h-4 w-4" />
+            {deleteBusy ? 'Deleting…' : 'Permanently Delete Account'}
           </button>
-          <button className="btn-ghost" disabled title="Not available in this build">
-            Import Vault
-          </button>
-          <button className="btn-danger" disabled title="Not available in this build">
-            Delete Vault
-          </button>
-          <span className="w-full pt-1 text-xs text-muted-foreground">
-            Planned for a later build.
-          </span>
+          {deleteError && <p className="mt-2 text-xs text-red-400">{deleteError}</p>}
         </div>
       </section>
     </div>

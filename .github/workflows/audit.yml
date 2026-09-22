@@ -1,0 +1,40 @@
+# Dependency security audits. Runs weekly and on demand so new advisories in
+# the dependency tree surface even when nothing in the repo changes.
+# Findings do not fail CI on main automatically (they need human judgment:
+# some advisories don't apply to how a crate is used here) — but every
+# advisory must be triaged in an issue. See docs/security.md.
+
+name: Security audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit Rust dependencies
+        working-directory: secure-vault
+        run: cargo audit
+
+  npm-audit:
+    name: npm audit (web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: secure-vault/apps/web/package-lock.json
+      - name: Audit web dependencies
+        working-directory: secure-vault/apps/web
+        # High/critical advisories fail; moderate ones are reported only.
+        run: npm audit --audit-level=high

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Fingerprint, Lock, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { createPasskey, getPasskeyAssertion, passkeysSupported } from '@/lib/passkeys';
+import { AuthHeader } from '@/components/SecureX';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,6 +19,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   /** Passkey-only sign-in: usernameless — the authenticator offers its
    * discoverable credentials for this site and the user picks one. */
@@ -66,7 +69,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="mx-auto mt-10 flex min-h-[calc(100vh-5rem)] max-w-md flex-col justify-center">
+    <div className="rise">
+      <AuthHeader />
+      <div className="mx-auto mt-6 flex min-h-[calc(100vh-9rem)] max-w-md flex-col justify-center">
       <div className="card p-8">
         <div className="icon-disc mx-auto !h-11 !w-11">
           {awaiting2fa ? (
@@ -151,7 +156,7 @@ export default function LoginPage() {
               <button type="submit" disabled={loading} className="btn-primary w-full">
                 {loading ? 'Signing in…' : 'Sign In'}
               </button>
-              {passkeysSupported() && (
+              {mounted && passkeysSupported() && (
                 <>
                   <div className="flex items-center gap-3 py-1">
                     <div className="h-px flex-1 bg-border" />
@@ -182,6 +187,7 @@ export default function LoginPage() {
           </Link>
         </p>
       )}
+      </div>
     </div>
   );
 }

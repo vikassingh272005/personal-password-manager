@@ -39,8 +39,12 @@ export default function VaultPage() {
 
   const copyPassword = async (pw?: string) => {
     if (!pw) return;
-    await navigator.clipboard.writeText(pw);
-    setTimeout(() => navigator.clipboard.writeText(''), 30000);
+    try {
+      await navigator.clipboard.writeText(pw);
+      setTimeout(() => navigator.clipboard.writeText('').catch(() => {}), 30000);
+    } catch {
+      // Clipboard unavailable (e.g. document not focused) — copy is best-effort.
+    }
   };
 
   return (

@@ -115,7 +115,12 @@ export function PasswordGenerator() {
           ].map((opt) => (
             <label
               key={opt.label}
-              className="flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-secondary/40 px-4 py-3 transition-colors hover:border-primary/30 hover:bg-secondary/70"
+              className={cn(
+                'flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors',
+                opt.value
+                  ? 'border-white/20 bg-white/[0.08] text-foreground'
+                  : 'border-border bg-secondary/40 text-muted-foreground hover:border-white/15 hover:bg-secondary/70'
+              )}
             >
               <input
                 type="checkbox"
@@ -132,9 +137,18 @@ export function PasswordGenerator() {
                     )
                   );
                 }}
-                className="h-4 w-4 cursor-pointer rounded accent-primary"
+                className="peer sr-only"
               />
               <span className="text-sm">{opt.label}</span>
+              <span
+                aria-hidden
+                className={cn(
+                  'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
+                  opt.value ? 'border-silver bg-silver text-ink' : 'border-white/20 bg-transparent'
+                )}
+              >
+                {opt.value && <Check className="h-3 w-3" strokeWidth={3} />}
+              </span>
             </label>
           ))}
         </div>

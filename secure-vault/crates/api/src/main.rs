@@ -24,6 +24,15 @@ async fn main() -> Result<()> {
 
     sqlx::migrate!("../../migrations").run(&pool).await?;
 
+    // Periodic maintenance: expire/prune sessions and enforce snapshot
+    // retention. Runs forever on a 1-hour tick; failures are logged and
+    // retried on the next tick, never fatal.
+    let cleanup_pool = pool.clone();
+    let snapshot_retention = config.snapshot_retention_count;
+    tokio::spawn(async move {
+        secure_vault_api::maintenance::run_cleanup_loop(cleanup_pool, snapshot_retention).await;
+    });
+
     let port = config.port;
     let state = secure_vault_api::state::AppState::new(pool, config);
     let app = build_router(state);

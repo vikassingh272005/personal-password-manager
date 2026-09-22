@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { KeyRound, Copy, Check, Download, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
+import { AuthHeader } from '@/components/SecureX';
 import { useVaultStore } from '@/hooks/useVault';
 import { encryptEnvelope } from '@/lib/vaultEnvelope';
 import {
@@ -166,7 +167,9 @@ export default function RegisterPage() {
   // ---- Secret Key reveal step (shown exactly once, right after creation) ----
   if (step === 'secret' && secretKey) {
     return (
-      <div className="mx-auto mt-10 flex min-h-[calc(100vh-5rem)] max-w-lg flex-col justify-center py-6">
+      <div className="rise">
+        <AuthHeader />
+        <div className="mx-auto mt-6 flex min-h-[calc(100vh-9rem)] max-w-lg flex-col justify-center py-6">
         <div className="card p-8">
           <div className="icon-disc mx-auto !h-11 !w-11">
             <KeyRound className="h-5 w-5 text-white" />
@@ -222,12 +225,15 @@ export default function RegisterPage() {
           </button>
         </div>
       </div>
+    </div>
     );
   }
 
   // ---- Account + master password form ----
   return (
-    <div className="mx-auto mt-10 flex min-h-[calc(100vh-5rem)] max-w-md flex-col justify-center py-6">
+    <div className="rise">
+      <AuthHeader />
+      <div className="mx-auto mt-6 flex min-h-[calc(100vh-9rem)] max-w-md flex-col justify-center py-6">
       <div className="card p-8">
         <div className="icon-disc mx-auto !h-11 !w-11">
           <KeyRound className="h-5 w-5 text-white" />
@@ -310,6 +316,7 @@ export default function RegisterPage() {
           Sign in
         </Link>
       </p>
+      </div>
     </div>
   );
 }

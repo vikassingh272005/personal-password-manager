@@ -1,0 +1,77 @@
+# Production-style single-host stack: TLS reverse proxy (Caddy) → web + API →
+# Postgres. Designed for a small VPS (docker compose -f docker-compose.prod.yml
+# up -d --build). See docs/deployment.md for the full runbook.
+#
+# All secrets come from an env file you create ON THE HOST (never committed):
+#   cp .env.prod.example .env.prod   # fill in real values
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.prod}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: ../../docker/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      API_ORIGIN: http://api:3001
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      PORT: "3001"
+      DATABASE_URL: postgres://securevault:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@db:5432/secure_vault
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env.prod}
+      AUDIT_IP_SALT: ${AUDIT_IP_SALT:?set AUDIT_IP_SALT in .env.prod}
+      CORS_ORIGINS: https://${DOMAIN}
+      WEBAUTHN_RP_ID: ${DOMAIN}
+      WEBAUTHN_ORIGIN: https://${DOMAIN}
+      COOKIE_SECURE: "true"
+      SNAPSHOT_RETENTION_COUNT: ${SNAPSHOT_RETENTION_COUNT:-20}
+      RUST_LOG: info
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: secure_vault
+      POSTGRES_USER: securevault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securevault -d secure_vault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Not exposed to the host: only the api service can reach it on the
+    # compose network. pg_dump backups run via `docker compose exec db ...`.
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

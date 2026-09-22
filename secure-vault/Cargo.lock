@@ -1676,6 +1676,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "secure-vault-crypto",
  "secure-vault-database",
  "secure-vault-models",
  "serde",
@@ -1683,6 +1684,7 @@ dependencies = [
  "sqlx",
  "tracing",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1719,6 +1721,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]

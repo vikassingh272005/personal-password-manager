@@ -71,11 +71,16 @@ const NAV = [
   { href: '/settings', icon: User, label: 'Profile' },
 ];
 
+const AUTH_ROUTES = ['/login', '/register', '/unlock'];
+
 export function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  // Auth screens use the minimal AuthHeader — never the marketing dock.
+  if (pathname && AUTH_ROUTES.some((r) => pathname === r || pathname.startsWith(r + '/')))
+    return null;
   return (
-    <nav className="pointer-events-none fixed bottom-5 left-0 right-0 z-40 flex justify-center px-4">
+    <nav className="pointer-events-none fixed bottom-5 left-0 right-0 z-40 flex justify-center px-4 md:hidden">
       <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/15 bg-ink-soft/85 py-2 pl-2 pr-2 shadow-glass backdrop-blur-2xl">
         {NAV.map((item) => {
           const active = pathname === item.href || pathname?.startsWith(item.href + '/');
@@ -104,6 +109,24 @@ export function BottomNav() {
         </button>
       </div>
     </nav>
+  );
+}
+
+/* ---------- Auth header (login / register / unlock): brand + sign-in link only ---------- */
+
+export function AuthHeader() {
+  return (
+    <header className="flex items-center justify-between px-1 pb-6 pt-2">
+      <Link href="/" className="inline-flex items-center gap-2.5 rounded-lg" aria-label="SecureX home">
+        <SecureXLogo />
+      </Link>
+      <Link
+        href="/login"
+        className="glass-pill px-4 py-2 text-xs font-semibold text-white/85 transition-colors hover:text-white"
+      >
+        Sign in
+      </Link>
+    </header>
   );
 }
 

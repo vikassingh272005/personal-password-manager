@@ -9,6 +9,7 @@ import { useVaultStore, type VaultItem } from '@/hooks/useVault';
 import { useRouter } from 'next/navigation';
 import { Lock, KeyRound } from 'lucide-react';
 import Link from 'next/link';
+import { AuthHeader } from '@/components/SecureX';
 
 type Mode = 'password' | 'secret' | 'setmaster';
 
@@ -205,7 +206,9 @@ export default function UnlockPage() {
   const showModeSwitch = mode === 'password' || mode === 'secret';
 
   return (
-    <div className="mx-auto mt-10 flex min-h-[calc(100vh-5rem)] max-w-md flex-col justify-center py-6">
+    <div className="rise">
+      <AuthHeader />
+      <div className="mx-auto mt-6 flex min-h-[calc(100vh-9rem)] max-w-md flex-col justify-center py-6">
       <div className="card p-8">
         <div className="icon-disc mx-auto !h-12 !w-12">
           {mode === 'secret' ? <KeyRound className="h-5 w-5 text-white" /> : <Lock className="h-5 w-5 text-white" />}
@@ -346,6 +349,7 @@ export default function UnlockPage() {
             )}
           </p>
         )}
+      </div>
       </div>
     </div>
   );

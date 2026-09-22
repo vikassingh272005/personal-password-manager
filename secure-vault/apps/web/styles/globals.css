@@ -119,6 +119,61 @@
     @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-destructive/25 px-4 py-2.5 text-sm font-medium text-red-400 transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50;
   }
 
+  /* Secondary button: same shell as btn-ghost with a stronger label — used
+     beside btn-primary in auth forms. (Previously referenced but undefined,
+     which rendered a browser-default button and broke the layout.) */
+  .btn-secondary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-5 py-3 text-sm font-semibold text-foreground backdrop-blur-xl transition-all hover:bg-white/10 hover:text-white active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* Styled native <select>: keeps full keyboard/mobile a11y while matching
+     the glass system (dark options, focus ring, custom chevron). */
+  .select-pill {
+    @apply cursor-pointer appearance-none rounded-full border border-white/15 bg-white/[0.05] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23999%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[position:right_0.9rem_center] bg-no-repeat py-2.5 pl-4 pr-10 text-sm text-foreground outline-none transition-colors hover:bg-white/10 focus:ring-2 focus:ring-white/25;
+  }
+  .select-pill option {
+    @apply bg-ink text-white;
+  }
+
+  /* ---- Motion ---- */
+  /* Purposeful entrance only: content above the fold fades/slides in once on
+     load. Keyframes live in tailwind.config.js (animate-fade-up). */
+  .rise {
+    @apply animate-fade-up;
+  }
+  .rise-1 {
+    @apply animate-fade-up;
+    animation-delay: 60ms;
+    animation-fill-mode: backwards;
+  }
+  .rise-2 {
+    @apply animate-fade-up;
+    animation-delay: 120ms;
+    animation-fill-mode: backwards;
+  }
+  .rise-3 {
+    @apply animate-fade-up;
+    animation-delay: 180ms;
+    animation-fill-mode: backwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise,
+    .rise-1,
+    .rise-2,
+    .rise-3 {
+      animation: none;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   .tab-pill {
     @apply cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-xs font-medium text-muted-foreground transition-all hover:text-foreground;
   }
@@ -146,6 +201,11 @@
   .watermark {
     @apply pointer-events-none select-none text-center font-bold uppercase leading-none tracking-tight text-white/[0.05];
     font-size: clamp(3rem, 10vw, 7rem);
+  }
+
+  /* Editorial section eyebrow: tiny uppercase label above headings */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-white/40;
   }
 
   input[type='range'] {

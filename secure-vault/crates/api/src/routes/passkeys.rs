@@ -291,7 +291,7 @@ pub async fn login_finish(
     secure_vault_audit::log_event(&state.pool, stored.user_id, "LOGIN_PASSKEY", None).await?;
 
     let mut response_headers = axum::http::HeaderMap::new();
-    let cookie = crate::routes::auth::session_cookie(&session_token, 24 * 3600);
+    let cookie = crate::routes::auth::session_cookie(&state, &session_token, 24 * 3600);
     response_headers.insert(
         axum::http::header::SET_COOKIE,
         cookie

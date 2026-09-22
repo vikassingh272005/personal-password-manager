@@ -4,7 +4,22 @@ use axum::Json;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::sync::OnceLock;
 use uuid::Uuid;
+
+/// Static Argon2id hash of a random per-boot string. Used to equalize the
+/// response time of logins for unknown emails (timing-side account
+/// enumeration defense). It never matches any password.
+static DUMMY_PASSWORD_HASH: OnceLock<String> = OnceLock::new();
+
+fn dummy_password_hash() -> &'static str {
+    DUMMY_PASSWORD_HASH
+        .get_or_init(|| {
+            secure_vault_crypto::hash_password(&secure_vault_crypto::generate_random_string(32))
+                .unwrap_or_default()
+        })
+        .as_str()
+}
 
 use crate::errors::AppError;
 use crate::middleware::auth::AuthenticatedUser;
@@ -56,8 +71,15 @@ pub struct MeResponse {
     pub totp_enabled: bool,
 }
 
-pub fn session_cookie(token: &str, max_age: i64) -> String {
-    format!("session_token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}")
+/// Build the Set-Cookie header value for the session cookie. Adds the
+/// `Secure` attribute whenever the deployment config requires it (always
+/// under `APP_ENV=production`); local HTTP development stays insecure by
+/// design so the cookie still works on http://localhost.
+pub fn session_cookie(state: &AppState, token: &str, max_age: i64) -> String {
+    let mut cookie = format!("session_token={token}; Path=/; HttpOnly; SameSite=Lax");
+    cookie.push_str(&state.config.session_cookie_attributes());
+    cookie.push_str(&format!("; Max-Age={max_age}"));
+    cookie
 }
 
 fn is_admin_email(config: &crate::state::AppState, email: &str) -> bool {
@@ -67,6 +89,28 @@ fn is_admin_email(config: &crate::state::AppState, email: &str) -> bool {
         .admin_emails
         .iter()
         .any(|configured| configured == &email)
+}
+
+/// Minimal, deliberately conservative email check for the API boundary:
+/// exactly one `@` separating a non-empty local part from a domain with at
+/// least one dot. Full RFC 5322 validation is neither needed nor wanted here
+/// (the database unique index is the real guarantee); this only blocks
+/// obviously malformed input and whitespace tricks.
+fn is_valid_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    if local.is_empty() || domain.is_empty() {
+        return false;
+    }
+    if email.contains(char::is_whitespace) {
+        return false;
+    }
+    // Require a dot in the domain with non-empty labels on both sides.
+    match domain.split_once('.') {
+        Some((l, r)) => !l.is_empty() && !r.is_empty() && !domain.contains(".."),
+        None => false,
+    }
 }
 
 /// Insert a 24h session and return its raw token (the caller sets the
@@ -106,8 +150,20 @@ pub async fn register(
         return Err(AppError::Validation("All fields are required".into()));
     }
 
+    // Normalize + validate at the API boundary; the database's unique index
+    // then guarantees one account per address.
+    let email = req.email.trim().to_lowercase();
+    if !is_valid_email(&email) {
+        return Err(AppError::Validation("Enter a valid email address".into()));
+    }
+    if req.password.len() < 12 {
+        return Err(AppError::Validation(
+            "Account password must be at least 12 characters".into(),
+        ));
+    }
+
     let existing = sqlx::query("SELECT 1 FROM users WHERE email = $1")
-        .bind(&req.email)
+        .bind(&email)
         .fetch_optional(&state.pool)
         .await?;
 
@@ -124,9 +180,14 @@ pub async fn register(
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(&state.pool)
         .await?;
-    let role = if (state.config.admin_emails.is_empty() && user_count == 0)
-        || is_admin_email(&state, &req.email)
-    {
+    // Bootstrap rule: with no ADMIN_EMAILS configured, the very first account
+    // becomes admin — OUTSIDE PRODUCTION ONLY. A public deployment with no
+    // admin allow-list would hand the admin console to whoever registers
+    // first; there the first account is a normal user and an operator must
+    // promote an admin explicitly (see docs/operations.md).
+    let first_user_bootstrap =
+        state.config.admin_emails.is_empty() && user_count == 0 && !state.config.is_production();
+    let role = if first_user_bootstrap || is_admin_email(&state, &email) {
         "admin"
     } else {
         "user"
@@ -136,7 +197,7 @@ pub async fn register(
 
     sqlx::query("INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)")
         .bind(user_id)
-        .bind(&req.email)
+        .bind(&email)
         .bind(&password_hash)
         .bind(role)
         .execute(&state.pool)
@@ -176,7 +237,7 @@ pub async fn register(
     let mut headers = HeaderMap::new();
     headers.insert(
         header::SET_COOKIE,
-        session_cookie(&session_token, 86400)
+        session_cookie(&state, &session_token, 86400)
             .parse()
             .map_err(|_| AppError::Internal(anyhow::anyhow!("failed to build cookie")))?,
     );
@@ -195,7 +256,7 @@ pub async fn register(
         headers,
         Json(RegisterResponse {
             user_id,
-            email: req.email.clone(),
+            email,
             role: role.to_string(),
             message: "Account created successfully".into(),
             kdf_algorithm: kdf_algorithm.to_string(),
@@ -207,30 +268,64 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<AppState>,
+    parts: axum::http::request::Parts,
     Json(req): Json<LoginRequest>,
 ) -> Result<(StatusCode, HeaderMap, Json<AuthResponse>), AppError> {
+    let email = req.email.trim().to_lowercase();
+
+    // Salted IP hash for the audit trail (never the raw address). XFF first
+    // hop when a proxy supplied it, else the socket peer (see rate_limit.rs).
+    // Read from Parts (not the ConnectInfo extractor) so the handler still
+    // works in tests that call the router without connect info.
+    let peer = parts
+        .extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0);
+    let client_ip = crate::middleware::rate_limit::client_ip_for_audit(peer, &parts.headers);
+
+    // Account lookup. A missing row burns one Argon2id verification against a
+    // per-boot dummy hash before returning 401, so "unknown email" and
+    // "wrong password" are indistinguishable by response timing.
     let row =
         sqlx::query("SELECT id, email, password_hash, totp_enabled FROM users WHERE email = $1")
-            .bind(&req.email)
+            .bind(&email)
             .fetch_optional(&state.pool)
-            .await?
-            .ok_or(AppError::Unauthorized)?;
+            .await?;
 
-    let user_id: Uuid = row.try_get("id").map_err(|_| AppError::Unauthorized)?;
-    let email: String = row.try_get("email").map_err(|_| AppError::Unauthorized)?;
-    let password_hash: Option<String> = row
-        .try_get("password_hash")
-        .map_err(|_| AppError::Unauthorized)?;
-    let password_hash = password_hash.ok_or(AppError::Unauthorized)?;
-    let totp_enabled: bool = row
-        .try_get("totp_enabled")
-        .map_err(|_| AppError::Unauthorized)?;
+    let (user_id, email, password_hash, totp_enabled) = match row {
+        Some(row) => {
+            let user_id: Uuid = row.try_get("id").map_err(|_| AppError::Unauthorized)?;
+            let email: String = row.try_get("email").map_err(|_| AppError::Unauthorized)?;
+            let password_hash: String = row
+                .try_get::<Option<String>, _>("password_hash")
+                .map_err(|_| AppError::Unauthorized)?
+                .ok_or(AppError::Unauthorized)?;
+            let totp_enabled: bool = row
+                .try_get("totp_enabled")
+                .map_err(|_| AppError::Unauthorized)?;
+            (user_id, email, password_hash, totp_enabled)
+        }
+        None => {
+            let _ = secure_vault_crypto::verify_password(&req.password, dummy_password_hash());
+            // Unknown accounts have no row to attach an audit event to (the
+            // events table is user-scoped by design); the per-IP rate limiter
+            // is the control here.
+            return Err(AppError::Unauthorized);
+        }
+    };
 
     let valid = secure_vault_crypto::verify_password(&req.password, &password_hash)
         .map_err(|e| AppError::Crypto(e.to_string()))?;
 
     if !valid {
-        secure_vault_audit::log_event(&state.pool, user_id, "LOGIN_FAILED", None).await?;
+        secure_vault_audit::log_event_with_ip(
+            &state.pool,
+            user_id,
+            "LOGIN_FAILED",
+            None,
+            Some(&client_ip),
+        )
+        .await?;
         return Err(AppError::Unauthorized);
     }
 
@@ -256,17 +351,31 @@ pub async fn login(
     let session_token = create_session(&state, user_id, totp_enabled).await?;
 
     if totp_enabled {
-        secure_vault_audit::log_event(&state.pool, user_id, "LOGIN_PASSWORD_OK", None).await?;
+        secure_vault_audit::log_event_with_ip(
+            &state.pool,
+            user_id,
+            "LOGIN_PASSWORD_OK",
+            None,
+            Some(&client_ip),
+        )
+        .await?;
     } else {
-        secure_vault_audit::log_event(&state.pool, user_id, "LOGIN_SUCCESS", None).await?;
+        secure_vault_audit::log_event_with_ip(
+            &state.pool,
+            user_id,
+            "LOGIN_SUCCESS",
+            None,
+            Some(&client_ip),
+        )
+        .await?;
     }
 
-    // HttpOnly session cookie. Not marked Secure so local http dev works; add
-    // Secure + production domain handling when deployed behind https.
+    // HttpOnly session cookie; Secure is added automatically under
+    // APP_ENV=production (see session_cookie).
     let mut headers = HeaderMap::new();
     headers.insert(
         header::SET_COOKIE,
-        session_cookie(&session_token, 86400)
+        session_cookie(&state, &session_token, 86400)
             .parse()
             .map_err(|_| AppError::Internal(anyhow::anyhow!("failed to build cookie")))?,
     );
@@ -309,7 +418,7 @@ pub async fn logout(
     let mut headers = HeaderMap::new();
     headers.insert(
         header::SET_COOKIE,
-        session_cookie("", 0)
+        session_cookie(&state, "", 0)
             .parse()
             .map_err(|_| AppError::Internal(anyhow::anyhow!("failed to build cookie")))?,
     );

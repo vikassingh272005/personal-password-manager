@@ -75,7 +75,49 @@ export default function AdminUsersPage() {
           <span className="animate-pulse">Loading users…</span>
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        {/* Editorial mobile fallback (the table needs 760px; this needs none) */}
+        <div className="space-y-3 md:hidden">
+          {users.map((u) => (
+            <div key={u.id} className="card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{u.email}</span>
+                <span
+                  className={cn(
+                    'rounded px-1.5 py-px font-mono text-[10px] uppercase tracking-wide',
+                    u.role === 'admin' ? 'bg-rose-500/15 text-rose-400' : 'bg-secondary text-muted-foreground'
+                  )}
+                >
+                  {u.role}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {u.device_count} device{u.device_count === 1 ? '' : 's'} · {u.session_count} session{u.session_count === 1 ? '' : 's'} · {u.sync_count} sync{u.sync_count === 1 ? '' : 's'}
+                {!u.two_factor_enabled && ' · 2FA off'}
+              </p>
+              {!me || me.user_id === u.id ? null : (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => toggleRole(u)}
+                    disabled={busy === u.id}
+                    className="btn-ghost flex-1 px-2.5 py-1.5 text-xs"
+                  >
+                    {u.role === 'admin' ? 'Demote' : 'Make admin'}
+                  </button>
+                  <button
+                    onClick={() => revokeSessions(u)}
+                    disabled={busy === u.id || u.session_count === 0}
+                    className="btn-danger flex-1 px-2.5 py-1.5 text-xs"
+                  >
+                    Revoke sessions
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {/* Desktop table */}
+        <div className="card hidden overflow-x-auto md:block">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
@@ -199,6 +241,7 @@ export default function AdminUsersPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <section className="card border-dashed p-5 text-sm leading-relaxed text-muted-foreground">

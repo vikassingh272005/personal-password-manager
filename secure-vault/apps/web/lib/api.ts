@@ -230,6 +230,15 @@ export const api = {
     revoke: (id: string) =>
       request<{ message: string }>(`/devices/${id}`, { method: 'DELETE' }),
   },
+  account: {
+    /** Permanently delete the signed-in account and all vault data.
+     * Requires the account password; clears the session cookie. */
+    delete: (password: string) =>
+      request<{ message: string; email: string }>('/account', {
+        method: 'DELETE',
+        body: { password },
+      }),
+  },
   admin: {
     overview: () =>
       request<AdminOverview>('/admin/overview'),

@@ -25,6 +25,15 @@ fn test_db_url() -> String {
 }
 
 async fn setup_test() -> (axum::Router, tokio::sync::MutexGuard<'static, ()>) {
+    setup_test_with(/* is_production */ false, /* retention */ 20).await
+}
+
+/// Setup with configurable production-mode and snapshot retention so tests
+/// can exercise the production bootstrap guard and the retention cleanup.
+async fn setup_test_with(
+    is_production: bool,
+    retention: u32,
+) -> (axum::Router, tokio::sync::MutexGuard<'static, ()>) {
     // Serialize BEFORE touching the database: each test truncates the shared
     // database, so concurrent setups would wipe each other's fixtures.
     let guard = DB_LOCK.lock().await;
@@ -53,7 +62,14 @@ async fn setup_test() -> (axum::Router, tokio::sync::MutexGuard<'static, ()>) {
     let config = secure_vault_config::AppConfig {
         port: 0, // unused in tests — the router is called directly
         cors_origins: vec!["http://localhost:3000".to_string()],
-        admin_emails: vec![], // first registered account becomes admin
+        admin_emails: vec![], // bootstrap rule is exercised per-test below
+        cookie_secure: false,
+        snapshot_retention_count: retention,
+        app_env: if is_production {
+            "production".to_string()
+        } else {
+            "development".to_string()
+        },
         ..secure_vault_config::AppConfig::default()
     };
     let router = build_router(AppState::new(pool, config));
@@ -144,7 +160,35 @@ async fn put_json(
     (status, body_json(response).await)
 }
 
-/// 48 bytes of base64 (32-byte key + 16-byte GCM tag) and a 12-byte nonce.
+async fn delete_json(
+    app: &axum::Router,
+    uri: &str,
+    payload: Option<Value>,
+    cookie: &str,
+) -> (StatusCode, Value) {
+    let request = match payload {
+        Some(v) => Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("cookie", format!("session_token={cookie}"))
+            .header("content-type", "application/json")
+            .body(Body::from(v.to_string()))
+            .unwrap(),
+        None => Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("cookie", format!("session_token={cookie}"))
+            .body(Body::empty())
+            .unwrap(),
+    };
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    (status, body_json(response).await)
+}
+
+/// A wrap-shaped payload: 48 bytes of ciphertext (32-byte key + 16-byte GCM
+/// tag) and a 12-byte nonce, base64-encoded — exactly what the server-side
+/// shape validator in routes/vault.rs accepts.
 fn fake_wrap() -> Value {
     json!({
         "ciphertext": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4v",
@@ -171,11 +215,13 @@ async fn register_login_vault_flow() {
     assert!(cookie.is_some(), "registration must establish a session");
     let alice_cookie = cookie.unwrap();
 
-    // Duplicate registration is rejected.
+    // Duplicate registration is rejected. (The password below is deliberately
+    // 12+ chars: input validation fires before the uniqueness check, so a
+    // short password would yield 400 instead.)
     let (status, _, _) = post_json(
         &app,
         "/api/v1/auth/register",
-        json!({ "email": "alice@example.com", "password": "whatever123" }),
+        json!({ "email": "alice@example.com", "password": "whatever123456" }),
         None,
     )
     .await;
@@ -422,4 +468,236 @@ async fn two_factor_enroll_and_challenge_login() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn account_deletion_requires_password_and_cascades() {
+    let (app, _guard) = setup_test().await;
+
+    // First account becomes admin (development bootstrap) — they read the
+    // audit trail afterwards to prove it outlives the deleted user.
+    let (status, _, admin_cookie) = post_json(
+        &app,
+        "/api/v1/auth/register",
+        json!({ "email": "admin-witness@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let admin_cookie = admin_cookie.unwrap();
+
+    let (status, _, cookie) = post_json(
+        &app,
+        "/api/v1/auth/register",
+        json!({ "email": "victim@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let cookie = cookie.unwrap();
+
+    // Sync a vault snapshot so we can prove the data disappears with the user.
+    let (status, body) = put_json(
+        &app,
+        "/api/v1/vault",
+        json!({
+            "version": 1,
+            "ciphertext": "YWJjZGVmZ2hpamtsbW5vcA==",
+            "nonce": "AAAAAAAAAAAAAAAA",
+            "kek_wrap": fake_wrap(),
+        }),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    // Wrong password → 401, account survives.
+    let (status, _) = delete_json(
+        &app,
+        "/api/v1/account",
+        Some(json!({ "password": "wrong" })),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = get_json(&app, "/api/v1/auth/me", &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Correct password → 200 and the session cookie is cleared.
+    let (status, body) = delete_json(
+        &app,
+        "/api/v1/account",
+        Some(json!({ "password": "correct horse battery" })),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+
+    // Session is gone, vault is gone, login is impossible.
+    let (status, _) = get_json(&app, "/api/v1/auth/me", &cookie).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _, _) = post_json(
+        &app,
+        "/api/v1/auth/login",
+        json!({ "email": "victim@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // The audit trail survives via the tombstone: registration, vault update
+    // and the deletion event must still be present.
+    let (status, audit) = get_json(&app, "/api/v1/admin/audit?limit=200", &admin_cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    let types: Vec<&str> = audit["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e["event_type"].as_str())
+        .collect();
+    assert!(types.contains(&"USER_REGISTERED"));
+    assert!(types.contains(&"VAULT_UPDATED"));
+    assert!(types.contains(&"ACCOUNT_DELETED_SELF"), "events: {types:?}");
+}
+
+#[tokio::test]
+async fn production_mode_disables_first_user_admin_bootstrap() {
+    let (app, _guard) = setup_test_with(/* is_production */ true, 20).await;
+
+    let (status, body, _) = post_json(
+        &app,
+        "/api/v1/auth/register",
+        json!({ "email": "first@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+    assert_eq!(
+        body["role"], "user",
+        "in production the first account must NOT become admin automatically"
+    );
+
+    let (status, _, cookie) = post_json(
+        &app,
+        "/api/v1/auth/register",
+        json!({ "email": "second@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (_, me) = get_json(&app, "/api/v1/auth/me", &cookie.unwrap()).await;
+    assert_eq!(me["role"], "user");
+
+    // Nobody gets the console; an operator must promote explicitly.
+    let (status, _, cookie) = post_json(
+        &app,
+        "/api/v1/auth/login",
+        json!({ "email": "first@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = get_json(&app, "/api/v1/admin/users", &cookie.unwrap()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn snapshot_retention_prunes_old_versions() {
+    let (app, _guard) = setup_test_with(false, /* retention */ 2).await;
+
+    let (status, _, cookie) = post_json(
+        &app,
+        "/api/v1/auth/register",
+        json!({ "email": "retention@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let cookie = cookie.unwrap();
+
+    // Push versions 1..=4; retention 2 should keep 3 and 4 after cleanup.
+    for v in 1..=4u16 {
+        let (status, body) = put_json(
+            &app,
+            "/api/v1/vault",
+            json!({
+                "version": v,
+                "ciphertext": "YWJjZGVmZ2hpamtsbW5vcA==",
+                "nonce": "AAAAAAAAAAAAAAAA",
+            }),
+            &cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "v{v}: {body}");
+    }
+
+    let pool = pool_of().await;
+    secure_vault_api::maintenance::run_cleanup_once(&pool, /* retention */ 2)
+        .await
+        .expect("cleanup runs");
+    let remaining: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM vault_snapshots WHERE user_id = (SELECT id FROM users WHERE email = 'retention@example.com') ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .expect("query snapshots");
+    assert_eq!(remaining, vec![3, 4], "only the newest 2 snapshots survive");
+
+    // The newest snapshot is intact: the vault still syncs to version 5.
+    let (status, body) = put_json(
+        &app,
+        "/api/v1/vault",
+        json!({
+            "version": 5,
+            "ciphertext": "YWJjZGVmZ2hpamtsbW5vcA==",
+            "nonce": "AAAAAAAAAAAAAAAA",
+        }),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+}
+
+#[tokio::test]
+async fn oversized_request_bodies_are_rejected() {
+    let (app, _guard) = setup_test().await;
+
+    let (status, _, cookie) = post_json(
+        &app,
+        "/api/v1/auth/register",
+        json!({ "email": "big@example.com", "password": "correct horse battery" }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let cookie = cookie.unwrap();
+
+    // 3 MiB of base64 'A' exceeds the 2 MiB router body limit → 413.
+    let big_blob = "A".repeat(3 * 1024 * 1024);
+    let (status, _) = put_json(
+        &app,
+        "/api/v1/vault",
+        json!({ "version": 1, "ciphertext": big_blob, "nonce": "AAAAAAAAAAAAAAAA" }),
+        &cookie,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "the 2 MiB body limit must reject oversized uploads"
+    );
+}
+
+/// Secondary small pool to the same disposable test database, for asserting
+/// on rows directly (the router's own pool lives inside private AppState).
+async fn pool_of() -> sqlx::PgPool {
+    static POOL: tokio::sync::OnceCell<sqlx::PgPool> = tokio::sync::OnceCell::const_new();
+    POOL.get_or_init(|| async {
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&test_db_url())
+            .await
+            .expect("connect secondary test pool")
+    })
+    .await
+    .clone()
 }
